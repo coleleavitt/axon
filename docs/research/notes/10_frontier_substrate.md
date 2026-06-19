@@ -73,35 +73,50 @@ would not be axon anymore. **Already partially covered:** `axon-memory` has a
 need arises, the right increment is an optional `Embedding` signal type and a
 consensus readout module — *not* converting the router to manifold dynamics.
 
-### #11 — Adult neurogenesis / runtime module birth-death — not built
+### #11 — Adult neurogenesis / runtime module birth-death — tractable form built
 
 **Biology:** the adult brain grows new neurons (dentate gyrus, for pattern
 separation) and prunes others — capacity added on demand without catastrophic
 interference.
 
-**Why it doesn't fit:** axon's modules are compiled Rust code wired at startup;
-"birthing a neuron" means instantiating and retiring computational units at
-runtime, which implies a sandboxed plugin host (WASM/process isolates),
+**The headline mechanism doesn't fit:** axon's modules are compiled Rust code
+wired at startup; runtime "birth" means instantiating and retiring computational
+units at runtime, which implies a sandboxed plugin host (WASM/process isolates),
 serialization, versioning, and a security model — a large surface that fights the
-deterministic, statically-reasoned design. **Already partially covered, and
-that's the point:**
+deterministic, statically-reasoned design. That stays out until a concrete need
+justifies the cost.
+
+**But its *purpose* — acquiring new capability on demand — has a clean tractable
+form, now built:**
+- *Skill acquisition* — `SkillLibrary` (axon-exec) wires the
+  `ProceduralStore` into the loop: a plan that worked is promoted
+  (`learn(goal, &plan)`) and recalled (`recall`/`recall_similar`) as a runnable
+  plan, so the agent reuses a known-good skill instead of re-planning. Plans
+  round-trip to procedural memory via `Plan::to_procedure` / `from_procedure`.
+  Opt-in; pays off when goals recur.
 - *Pattern separation* (the dentate gyrus's job) is handled by near-duplicate
   orthogonalization on memory encode.
 - *Virtual nodes* (shared implementation, independent learned state) already
   exist: learned weight is **per-edge**, so two routes to the same module learn
   independently.
-- *Skill acquisition* (the tractable analog of capacity growth) is seeded by the
-  `ProceduralStore` (procedures keyed by goal) plus `Plan::compose` (assembling a
-  long-horizon plan from reusable sub-plans).
 
-True runtime code-birth stays out until a concrete need justifies the sandboxing
-cost.
+So #11 is adopted in the form that fits the substrate (a growing skill library),
+and declined in the form that doesn't (runtime code-birth). #10 remains the one
+genuinely deferred item.
 
 ## Recommendation
 
-Keep the core as it is. The frontier worth adopting (#8, #9) is now in, as
-idiomatic optional pieces. #10 and #11 should remain documented rather than
-built: their *purposes* are already approximated by features that fit the
-substrate, and forcing the mechanisms themselves would trade axon's determinism
-and simplicity for biological fidelity that buys an agent SDK little. Revisit
-only with a concrete workload that the approximations demonstrably fail to serve.
+Keep the core as it is. Three of the four frontier ideas are now in, each as the
+form that fits the substrate: #8 phase coding (`PhaseGate`), #9 dendritic
+computation (`CompartmentModule`), and #11's tractable form — skill acquisition
+(`SkillLibrary`). In every case the *headline* mechanism that would need a
+different substrate (continuous oscillations, active dendritic dynamics, runtime
+code-birth) is declined, while its purpose is captured by a discrete, optional,
+deterministic addition.
+
+Only **#10** (dense population/manifold codes) remains genuinely deferred: it
+needs a different *representation*, not just a different mechanism, and its
+purpose is partly covered (memory embeddings; fan-out voting). Revisit it only
+with a concrete workload the approximations demonstrably fail to serve — and even
+then as an optional `Embedding` signal + consensus readout, never by turning the
+typed router into manifold dynamics.

@@ -10,6 +10,7 @@ mod agent;
 mod bridge;
 mod learning;
 mod planning;
+mod risk;
 
 pub use agent::{
     AgentSignal,
@@ -25,6 +26,7 @@ pub use agent::{
 pub use bridge::encode_salient;
 pub use learning::{LearningLoop, OutcomeError};
 pub use planning::{plan_prompt, propose_plan};
+pub use risk::{KeywordRisk, RiskAppraiser, RiskGate};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {

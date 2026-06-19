@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ModuleId(Cow<'static, str>);
 
 impl ModuleId {
@@ -44,6 +45,7 @@ impl TryFrom<String> for ModuleId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InputId(Cow<'static, str>);
 
 impl InputId {
@@ -85,6 +87,7 @@ impl TryFrom<String> for InputId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EndpointId {
     Input(InputId),
     Module(ModuleId),

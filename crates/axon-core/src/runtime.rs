@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+use crate::edge::EdgeId;
 use crate::error::RuntimeError;
 use crate::event::RunEvent;
 use crate::gate::Gate;
 use crate::id::{EndpointId, InputId, ModuleId};
 use crate::limit::StepLimit;
 use crate::module::{Module, ModuleOutput};
+use crate::plasticity::{Plasticity, Reinforcement};
 use crate::report::{RunReport, RunStatus, TraceStep};
 use crate::route::{Route, Weight};
 use crate::routing::RoutingTable;
@@ -154,6 +156,42 @@ impl<P> Runtime<P> {
                 Err(source) => return Err(RuntimeError::Module { id: to, source }),
             }
         }
+    }
+
+    /// Apply credit assignment over a finished run's trajectory, mutating route
+    /// weights so paths that led to good outcomes strengthen and ones that led
+    /// to bad outcomes weaken. Pass `report.steps()` from a prior
+    /// [`run`](Self::run); the graded `error` in `reinforcement` comes from the
+    /// caller (e.g. `axon_predict::Mismatch::magnitude()`), which keeps the core
+    /// free of any prediction dependency. Reinforcement changes are streamed to
+    /// `observer` as [`RunEvent::Reinforced`].
+    pub fn reinforce(
+        &mut self,
+        plasticity: &dyn Plasticity,
+        steps: &[TraceStep],
+        reinforcement: Reinforcement,
+        observer: &mut dyn FnMut(&RunEvent),
+    ) {
+        self.routing
+            .reinforce(plasticity, steps, reinforcement, observer);
+    }
+
+    /// Decay all learned routing weights toward their priors — see
+    /// [`RoutingTable::decay`].
+    pub fn decay(&mut self, rate: f32) {
+        self.routing.decay(rate);
+    }
+
+    /// Snapshot learned routing weights for persistence — see
+    /// [`RoutingTable::learned_weights`].
+    pub fn learned_weights(&self) -> Vec<(EdgeId, i16)> {
+        self.routing.learned_weights()
+    }
+
+    /// Restore learned routing weights from a snapshot — see
+    /// [`RoutingTable::restore_learned`].
+    pub fn restore_learned(&mut self, snapshot: &[(EdgeId, i16)]) {
+        self.routing.restore_learned(snapshot);
     }
 
     pub fn module_count(&self) -> usize {

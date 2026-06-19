@@ -1,3 +1,4 @@
+use crate::edge::EdgeId;
 use crate::id::{EndpointId, ModuleId};
 use crate::signal::Signal;
 
@@ -18,6 +19,12 @@ impl TraceStep {
 
     pub const fn to(&self) -> &ModuleId {
         &self.to
+    }
+
+    /// This step's `(from, to)` edge identity — the key credit assignment uses to
+    /// reinforce the routes a trajectory actually traversed.
+    pub fn edge(&self) -> EdgeId {
+        EdgeId::new(self.from.clone(), self.to.clone())
     }
 }
 

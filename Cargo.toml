@@ -38,7 +38,12 @@ axon-workspace = { path = "crates/axon-workspace", version = "=0.1.0" }
 [features]
 # Opt-in persistence: forwards serde derives to the stateful layer crates so
 # memory, workspace, and neuromodulator state can be snapshotted and restored.
-serde = ["axon-memory/serde", "axon-modulate/serde", "axon-workspace/serde"]
+serde = [
+    "axon-core/serde",
+    "axon-memory/serde",
+    "axon-modulate/serde",
+    "axon-workspace/serde",
+]
 # A real OpenAI Chat Completions provider (pulls an async HTTP client).
 openai = ["axon-provider/openai"]
 

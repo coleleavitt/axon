@@ -2,7 +2,11 @@ use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt;
 
+use crate::edge::EdgeId;
+use crate::event::RunEvent;
 use crate::id::EndpointId;
+use crate::plasticity::{Credit, Plasticity, Reinforcement};
+use crate::report::TraceStep;
 use crate::route::{Route, Weight};
 use crate::signal::Signal;
 
@@ -73,6 +77,95 @@ impl<P> RoutingTable<P> {
             Ok(selected)
         }
     }
+
+    /// Apply graded, eligibility-weighted credit to every edge traversed in
+    /// `steps`, mutating learned weights and emitting one
+    /// [`RunEvent::Reinforced`] per changed edge.
+    ///
+    /// Credit is assigned through a TD(λ)-style eligibility trace: edges nearer
+    /// the outcome receive more credit than distant ones, so a *delayed* result
+    /// (a coding agent's "tests still fail" surfacing many hops after the bad
+    /// edit) is attributed across the whole path that produced it rather than
+    /// only the last edge — the difference between real credit assignment and
+    /// superstitious reinforcement. Default runs that never call this allocate
+    /// nothing.
+    pub fn reinforce(
+        &mut self,
+        plasticity: &dyn Plasticity,
+        steps: &[TraceStep],
+        reinforcement: Reinforcement,
+        observer: &mut dyn FnMut(&RunEvent),
+    ) {
+        for (edge, eligibility) in eligibility_trace(steps, reinforcement.decay) {
+            let delta = plasticity.delta(Credit {
+                error: reinforcement.error,
+                eligibility,
+                learning_rate: reinforcement.learning_rate,
+            });
+            if delta == 0 {
+                continue;
+            }
+            let mut changed = false;
+            for route in self.routes.iter_mut().filter(|route| route.edge() == edge) {
+                route.reinforce(delta);
+                changed = true;
+            }
+            if changed {
+                observer(&RunEvent::Reinforced {
+                    edge: edge.clone(),
+                    delta,
+                });
+            }
+        }
+    }
+
+    /// Decay every learned weight toward its static prior by `rate` — synaptic
+    /// forgetting that stops unreinforced learning from accumulating forever.
+    pub fn decay(&mut self, rate: f32) {
+        for route in &mut self.routes {
+            route.decay(rate);
+        }
+    }
+
+    /// Snapshot the learned (plastic) weight of every edge for persistence,
+    /// keyed by edge identity and decoupled from the non-serializable gates.
+    pub fn learned_weights(&self) -> Vec<(EdgeId, i16)> {
+        self.routes
+            .iter()
+            .map(|route| (route.edge(), route.learned()))
+            .collect()
+    }
+
+    /// Restore learned weights from a [`learned_weights`](Self::learned_weights)
+    /// snapshot, matching by edge identity. Edges absent from the snapshot keep
+    /// their current learning; gates are reconstructed from code at wiring time.
+    pub fn restore_learned(&mut self, snapshot: &[(EdgeId, i16)]) {
+        for (edge, learned) in snapshot {
+            for route in self.routes.iter_mut().filter(|route| route.edge() == *edge) {
+                route.set_learned(*learned);
+            }
+        }
+    }
+}
+
+/// Fold a trajectory into the terminal eligibility of each distinct edge using a
+/// decaying trace: each step discounts all accrued eligibility by `decay`, then
+/// the fired edge gains `1.0`. Edges fired later (nearer the outcome) end with
+/// higher eligibility, and a repeated edge accumulates.
+fn eligibility_trace(steps: &[TraceStep], decay: f32) -> Vec<(EdgeId, f32)> {
+    let decay = decay.clamp(0.0, 1.0);
+    let mut trace: Vec<(EdgeId, f32)> = Vec::new();
+    for step in steps {
+        let edge = step.edge();
+        for (_, eligibility) in &mut trace {
+            *eligibility *= decay;
+        }
+        match trace.iter_mut().find(|(id, _)| *id == edge) {
+            Some((_, eligibility)) => *eligibility += 1.0,
+            None => trace.push((edge, 1.0)),
+        }
+    }
+    trace
 }
 
 impl<P> Default for RoutingTable<P> {

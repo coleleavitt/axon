@@ -8,9 +8,16 @@ description = "Typed signal routing core for Axon."
 repository.workspace = true
 
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+serde_json = "1"
+
+[features]
+# Opt-in serde derives for the persistable routing types (ids, `EdgeId`,
+# `Weight`) so learned routing weights can be snapshotted and restored.
+serde = ["dep:serde"]
 
 [lints]
 workspace = true

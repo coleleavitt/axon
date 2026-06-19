@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prediction {
     action: String,
@@ -102,6 +104,46 @@ impl Mismatch {
     pub fn observed(&self) -> &str {
         &self.observed
     }
+
+    /// The graded prediction error in `[0.0, 1.0]`: *how wrong* the outcome
+    /// was, not merely *that* it was wrong. `0.0` means the observation fully
+    /// covered the expectation; `1.0` means no overlap at all. Computed as the
+    /// token (Jaccard) distance between the expected text and the observation.
+    ///
+    /// This is the scalar a predictive layer propagates upward and that
+    /// plasticity scales learning by — the prerequisite for graded
+    /// reinforcement (a categorical "wrong" cannot be scaled).
+    pub fn magnitude(&self) -> f32 {
+        let expected = match &self.expected {
+            Expected::Contains(text) | Expected::Equals(text) => text.as_str(),
+            // An `Anything` expectation can never be contradicted, so a mismatch
+            // built from one carries no error.
+            Expected::Anything => return 0.0,
+        };
+        token_distance(expected, &self.observed)
+    }
+}
+
+/// Split text into lowercased alphanumeric tokens — the unit graded error is
+/// measured over, so wording, case, and punctuation differences don't dominate.
+fn tokenize(text: &str) -> BTreeSet<String> {
+    text.split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Jaccard distance `1 - |A ∩ B| / |A ∪ B|` over token sets, in `[0.0, 1.0]`.
+/// Two empty strings are treated as identical (distance `0.0`).
+fn token_distance(expected: &str, observed: &str) -> f32 {
+    let expected = tokenize(expected);
+    let observed = tokenize(observed);
+    let union = expected.union(&observed).count();
+    if union == 0 {
+        return 0.0;
+    }
+    let intersection = expected.intersection(&observed).count();
+    1.0 - (intersection as f32 / union as f32)
 }
 
 #[derive(Debug, Default, Clone, Copy)]

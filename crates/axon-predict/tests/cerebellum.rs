@@ -61,3 +61,32 @@ fn correction_exposes_propagable_prediction_error() -> Result<(), Box<dyn Error>
     assert!(clean.mismatch().is_none());
     Ok(())
 }
+
+#[test]
+fn mismatch_magnitude_is_graded_not_categorical() -> Result<(), Box<dyn Error>> {
+    // Given: a total miss (no shared words) and a partial miss (some shared).
+    let total = Verifier.verify(
+        &Prediction::new("inspect", Expected::Contains("absent".to_owned())),
+        &Outcome::new("Cargo package axon"),
+    );
+    let partial = Verifier.verify(
+        &Prediction::new("inspect", Expected::Equals("cargo package axon".to_owned())),
+        &Outcome::new("cargo package missing"),
+    );
+
+    // When: each mismatch's graded error magnitude is measured.
+    let Some(total) = total.mismatch() else {
+        panic!("expected a total mismatch");
+    };
+    let Some(partial) = partial.mismatch() else {
+        panic!("expected a partial mismatch");
+    };
+
+    // Then: a total miss saturates at 1.0, a partial miss lands strictly inside
+    // (0, 1), and "more wrong" scores higher than "less wrong" — the scalar
+    // plasticity scales learning by, not a yes/no flag.
+    assert!((total.magnitude() - 1.0).abs() < f32::EPSILON);
+    assert!((partial.magnitude() - 0.5).abs() < f32::EPSILON);
+    assert!(partial.magnitude() < total.magnitude());
+    Ok(())
+}

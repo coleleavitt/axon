@@ -23,6 +23,119 @@ impl Goal {
     }
 }
 
+/// The lifecycle status of a goal on the [`GoalStack`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GoalStatus {
+    Active,
+    Blocked,
+    Done,
+}
+
+/// A goal with a priority and a lifecycle status — richer than the single string
+/// [`Goal`], so objectives can be maintained, prioritized, and tracked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct GoalItem {
+    text: String,
+    priority: Priority,
+    status: GoalStatus,
+}
+
+impl GoalItem {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub const fn priority(&self) -> Priority {
+        self.priority
+    }
+
+    pub const fn status(&self) -> GoalStatus {
+        self.status
+    }
+}
+
+/// A prioritized goal stack with status tracking — the PFC goal-maintenance the
+/// flat single-string `Goal` lacked. Long-horizon work pushes sub-goals; the
+/// agent always pursues the highest-priority active one and marks goals
+/// blocked/done as it progresses.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct GoalStack {
+    goals: Vec<GoalItem>,
+}
+
+impl GoalStack {
+    pub const fn new() -> Self {
+        Self { goals: Vec::new() }
+    }
+
+    /// Push a new active goal with the given priority.
+    pub fn push(&mut self, text: impl Into<String>, priority: Priority) {
+        self.goals.push(GoalItem {
+            text: text.into(),
+            priority,
+            status: GoalStatus::Active,
+        });
+    }
+
+    pub fn goals(&self) -> &[GoalItem] {
+        &self.goals
+    }
+
+    pub fn len(&self) -> usize {
+        self.goals.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.goals.is_empty()
+    }
+
+    fn active_index(&self) -> Option<usize> {
+        self.goals
+            .iter()
+            .enumerate()
+            .filter(|(_, goal)| goal.status == GoalStatus::Active)
+            .max_by(|(left_index, left), (right_index, right)| {
+                left.priority
+                    .cmp(&right.priority)
+                    .then(left_index.cmp(right_index))
+            })
+            .map(|(index, _)| index)
+    }
+
+    /// The highest-priority active goal (most recent among ties), or `None`.
+    pub fn active(&self) -> Option<&GoalItem> {
+        self.active_index().map(|index| &self.goals[index])
+    }
+
+    fn set_active_status(&mut self, status: GoalStatus) -> bool {
+        match self.active_index() {
+            Some(index) => {
+                self.goals[index].status = status;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Mark the current active goal Done; returns whether one was active.
+    pub fn complete_active(&mut self) -> bool {
+        self.set_active_status(GoalStatus::Done)
+    }
+
+    /// Mark the current active goal Blocked; returns whether one was active.
+    pub fn block_active(&mut self) -> bool {
+        self.set_active_status(GoalStatus::Blocked)
+    }
+
+    /// Drop every Done goal.
+    pub fn retire_done(&mut self) {
+        self.goals.retain(|goal| goal.status != GoalStatus::Done);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Broadcast {

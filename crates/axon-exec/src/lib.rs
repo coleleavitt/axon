@@ -67,12 +67,39 @@ impl Plan {
         }
     }
 
+    /// Compose sub-plans into one plan by expanding each sub-goal's steps in
+    /// order — a flattened realization of a hierarchical (sub-goal) plan, so a
+    /// long-horizon task can be assembled from smaller reusable plans.
+    pub fn compose<I>(subplans: I) -> Self
+    where
+        I: IntoIterator<Item = Plan>,
+    {
+        Self {
+            steps: subplans.into_iter().flat_map(|plan| plan.steps).collect(),
+        }
+    }
+
+    /// Append another plan's steps after this one's (sequential sub-goals).
+    #[must_use]
+    pub fn then(mut self, next: Plan) -> Self {
+        self.steps.extend(next.steps);
+        self
+    }
+
     pub fn step(&self, index: usize) -> Option<&Step> {
         self.steps.get(index)
     }
 
     pub fn steps(&self) -> &[Step] {
         &self.steps
+    }
+
+    pub fn len(&self) -> usize {
+        self.steps.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
     }
 }
 

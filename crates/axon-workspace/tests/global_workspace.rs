@@ -1,6 +1,7 @@
 use std::error::Error;
 
-use axon_workspace::{Broadcast, BroadcastKind, Goal, Workspace};
+use axon_core::Priority;
+use axon_workspace::{Broadcast, BroadcastKind, Goal, GoalItem, GoalStack, GoalStatus, Workspace};
 
 #[test]
 fn workspace_keeps_bounded_recent_broadcasts() -> Result<(), Box<dyn Error>> {
@@ -50,6 +51,35 @@ fn routine_observations_cannot_evict_urgent_alerts() -> Result<(), Box<dyn Error
             .iter()
             .all(|item| item.kind() == BroadcastKind::Alert)
     );
+    Ok(())
+}
+
+#[test]
+fn goal_stack_pursues_highest_priority_then_advances() -> Result<(), Box<dyn Error>> {
+    // Given: two goals pushed at different priorities.
+    let mut goals = GoalStack::new();
+    goals.push("ship the SDK", Priority::new(1));
+    goals.push("fix the urgent bug", Priority::new(5));
+
+    // Then: the higher-priority goal is the active one.
+    assert_eq!(
+        goals.active().map(GoalItem::text),
+        Some("fix the urgent bug")
+    );
+
+    // When: it is completed, focus advances to the remaining goal.
+    assert!(goals.complete_active());
+    assert_eq!(goals.active().map(GoalItem::text), Some("ship the SDK"));
+
+    // And: the completed goal is tracked as Done and can be retired.
+    assert!(
+        goals
+            .goals()
+            .iter()
+            .any(|goal| goal.text() == "fix the urgent bug" && goal.status() == GoalStatus::Done)
+    );
+    goals.retire_done();
+    assert_eq!(goals.len(), 1);
     Ok(())
 }
 

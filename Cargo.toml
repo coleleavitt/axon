@@ -12,6 +12,7 @@ exclude = [
     "docs/research/deep_research_reports/**",
     "jfc-transcript.md",
     "session-*.md",
+    "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt",
 ]
 
 [workspace]

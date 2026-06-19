@@ -53,6 +53,9 @@ pub enum AgentSignal {
     },
     /// The executive released the loop to plan `next`.
     Advance { next: usize },
+    /// The executive asks the planner to re-plan after a severe mismatch at
+    /// `step`, rather than retrying the same failing step.
+    Replan { step: usize, reason: String },
     /// Terminal: the loop stopped, with a human-readable reason.
     Halt { reason: String },
 }
@@ -91,18 +94,43 @@ stage_gate!(
     /// Admits only [`AgentSignal::Advance`] feedback to the planner.
     OnAdvance => AgentSignal::Advance { .. }
 );
+stage_gate!(
+    /// Admits only [`AgentSignal::Replan`] requests back to the planner.
+    OnReplan => AgentSignal::Replan { .. }
+);
 
-/// Prefrontal source of actions: walks a fixed [`Plan`], emitting one
-/// [`AgentSignal::Act`] per step and stopping once the plan is exhausted.
-#[derive(Debug)]
+/// A boxed re-planning function: maps a failure reason to a fresh [`Plan`].
+type Replanner = Box<dyn FnMut(&str) -> Plan>;
+
+/// Prefrontal source of actions: walks a [`Plan`], emitting one
+/// [`AgentSignal::Act`] per step and stopping once the plan is exhausted. With a
+/// replanner installed it can also swap in a fresh plan on
+/// [`AgentSignal::Replan`] instead of perseverating on a failing one.
 pub struct Planner {
     id: ModuleId,
     plan: Plan,
+    replanner: Option<Replanner>,
 }
 
 impl Planner {
     pub const fn new(id: ModuleId, plan: Plan) -> Self {
-        Self { id, plan }
+        Self {
+            id,
+            plan,
+            replanner: None,
+        }
+    }
+
+    /// Install a replanner: on a [`Replan`](AgentSignal::Replan) request it is
+    /// called with the failure reason to produce a fresh plan (e.g. an LLM
+    /// `propose_plan`). Without one, a replan request halts the loop.
+    #[must_use]
+    pub fn with_replanner<F>(mut self, replanner: F) -> Self
+    where
+        F: FnMut(&str) -> Plan + 'static,
+    {
+        self.replanner = Some(Box::new(replanner));
+        self
     }
 
     fn act_for(&self, step: usize) -> Option<AgentSignal> {
@@ -111,6 +139,26 @@ impl Planner {
             action: step_def.action().to_owned(),
             prediction: step_def.prediction().clone(),
         })
+    }
+
+    fn emit_act(&self, step: usize) -> ModuleOutput<AgentSignal> {
+        match self.act_for(step) {
+            Some(act) => ModuleOutput::emit(act),
+            None => ModuleOutput::stop(AgentSignal::Halt {
+                reason: format!("plan complete after {step} steps"),
+            }),
+        }
+    }
+}
+
+impl fmt::Debug for Planner {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Planner")
+            .field("id", &self.id)
+            .field("plan", &self.plan)
+            .field("replanner", &self.replanner.is_some())
+            .finish()
     }
 }
 
@@ -123,17 +171,26 @@ impl Module<AgentSignal> for Planner {
         &mut self,
         signal: Signal<AgentSignal>,
     ) -> Result<ModuleOutput<AgentSignal>, ModuleError> {
-        let next = match signal.into_payload() {
-            AgentSignal::Goal => 0,
-            AgentSignal::Advance { next } => next,
-            _ => return Err(ModuleError::new("planner expects a goal or advance signal")),
-        };
-        Ok(match self.act_for(next) {
-            Some(act) => ModuleOutput::emit(act),
-            None => ModuleOutput::stop(AgentSignal::Halt {
-                reason: format!("plan complete after {next} steps"),
-            }),
-        })
+        match signal.into_payload() {
+            AgentSignal::Goal => Ok(self.emit_act(0)),
+            AgentSignal::Advance { next } => Ok(self.emit_act(next)),
+            AgentSignal::Replan { reason, .. } => {
+                let new_plan = match &mut self.replanner {
+                    Some(replan) => replan(&reason),
+                    None => {
+                        return Ok(ModuleOutput::stop(AgentSignal::Halt {
+                            reason: format!("cannot replan: {reason}"),
+                        }));
+                    }
+                };
+                self.plan = new_plan;
+                // The fresh plan starts from the top.
+                Ok(self.emit_act(0))
+            }
+            _ => Err(ModuleError::new(
+                "planner expects a goal, advance, or replan signal",
+            )),
+        }
     }
 }
 
@@ -210,6 +267,9 @@ pub struct Executive {
     max_retries: u32,
     last_retry_step: Option<usize>,
     retry_count: u32,
+    /// If set, a mismatch whose magnitude reaches this triggers a replan request
+    /// instead of a retry/halt.
+    replan_threshold: Option<f32>,
 }
 
 impl Executive {
@@ -230,7 +290,17 @@ impl Executive {
             max_retries: DEFAULT_MAX_RETRIES,
             last_retry_step: None,
             retry_count: 0,
+            replan_threshold: None,
         }
+    }
+
+    /// Trigger a re-plan when a mismatch's graded magnitude reaches `threshold`
+    /// (in `[0.0, 1.0]`), instead of retrying the same step or halting. Pair with
+    /// a [`Planner::with_replanner`] to actually swap the plan.
+    #[must_use]
+    pub const fn with_replan_threshold(mut self, threshold: f32) -> Self {
+        self.replan_threshold = Some(threshold);
+        self
     }
 
     /// Attach a shared [`OutcomeError`] meter so a
@@ -329,6 +399,21 @@ impl Module<AgentSignal> for Executive {
                 .broadcast(Broadcast::alert(mismatch.to_string()));
         }
 
+        // Cognitive flexibility: a severe mismatch re-plans rather than retrying
+        // the same step or halting — mPFC/ACC detecting a failing plan and
+        // re-routing instead of perseverating.
+        if let Some(threshold) = self.replan_threshold {
+            if let Some(mismatch) = correction.mismatch() {
+                if mismatch.magnitude() >= threshold {
+                    self.reset_retries();
+                    return Ok(ModuleOutput::emit(AgentSignal::Replan {
+                        step,
+                        reason: format!("severe mismatch in {}", mismatch.action()),
+                    }));
+                }
+            }
+        }
+
         Ok(match decide(correction, self.modulators.mode()) {
             Decision::Continue => {
                 // A step that finally succeeded clears its retry history.
@@ -358,5 +443,8 @@ pub fn wire_loop(
     runtime.add_module_route(planner.clone(), tool.clone(), LOOP_WEIGHT, OnAct)?;
     runtime.add_module_route(tool.clone(), executive.clone(), LOOP_WEIGHT, OnObserve)?;
     runtime.add_module_route(executive.clone(), planner.clone(), LOOP_WEIGHT, OnAdvance)?;
+    // Replan feedback shares the executive -> planner edge; its gate (OnReplan)
+    // is disjoint from OnAdvance, so selection stays unambiguous.
+    runtime.add_module_route(executive.clone(), planner.clone(), LOOP_WEIGHT, OnReplan)?;
     Ok(())
 }

@@ -19,6 +19,7 @@ pub use agent::{
     OnAdvance,
     OnGoal,
     OnObserve,
+    OnReplan,
     Planner,
     RoutedTool,
     wire_loop,

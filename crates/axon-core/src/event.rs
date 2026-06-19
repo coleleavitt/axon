@@ -27,4 +27,7 @@ pub enum RunEvent {
     /// Module `at`'s breaker degraded (failures accruing or open) — the home for
     /// supervisors to surface hub-robustness loss.
     Degraded { at: ModuleId },
+    /// Edge `edge` fired `count` times in one run, exceeding the stall threshold;
+    /// the run is halted to break the oscillation.
+    Stalled { edge: EdgeId, count: usize },
 }

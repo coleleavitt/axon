@@ -35,6 +35,9 @@ pub struct Runtime<P> {
     rng: Rng,
     /// Optional per-run energy budget; a run refuses a route it cannot afford.
     budget: Option<u32>,
+    /// Optional loop guard: if any edge fires more than this many times in one
+    /// run, the run halts with a stall instead of thrashing to the step limit.
+    stall_threshold: Option<usize>,
 }
 
 impl<P> Runtime<P> {
@@ -49,7 +52,18 @@ impl<P> Runtime<P> {
             rng: Rng::seeded(DEFAULT_SEED),
             stop: None,
             budget: None,
+            stall_threshold: None,
         }
+    }
+
+    /// Halt the run if any single edge fires more than `max_repeats` times — a
+    /// loop guard against oscillation (e.g. a reinforced feedback edge thrashing
+    /// to the step limit). Emits [`RunEvent::Stalled`] and ends with
+    /// [`RunStatus::Halted`].
+    #[must_use]
+    pub const fn with_stall_threshold(mut self, max_repeats: usize) -> Self {
+        self.stall_threshold = Some(max_repeats);
+        self
     }
 
     /// Cap the total route cost a single run may spend. When the next route would
@@ -227,6 +241,7 @@ impl<P> Runtime<P> {
         let mut steps = Vec::new();
         let mut steps_taken = 0usize;
         let mut spent = 0u32;
+        let mut edge_fires: HashMap<EdgeId, usize> = HashMap::new();
 
         loop {
             // Cooperative cancellation: the global brake, checked each step.
@@ -263,6 +278,19 @@ impl<P> Runtime<P> {
             spent = spent.saturating_add(route_cost);
 
             let to = route.to().clone();
+
+            // Loop guard: break an oscillating edge before it thrashes to the limit.
+            if let Some(max_repeats) = self.stall_threshold {
+                let edge = EdgeId::new(at.clone(), to.clone());
+                let fires = edge_fires.entry(edge.clone()).or_insert(0);
+                *fires += 1;
+                if *fires > max_repeats {
+                    let count = *fires;
+                    observer(&RunEvent::Stalled { edge, count });
+                    return Ok(RunReport::new(RunStatus::Halted { at }, steps));
+                }
+            }
+
             let module = self
                 .modules
                 .get_mut(&to)

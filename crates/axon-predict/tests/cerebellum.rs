@@ -4,8 +4,10 @@ use axon_predict::{
     AssociativePredictor,
     Correction,
     Expected,
+    FixedPredictor,
     Outcome,
     Prediction,
+    PredictiveHierarchy,
     Predictor,
     Verifier,
 };
@@ -144,6 +146,37 @@ fn forward_model_confidence_grows_with_evidence() -> Result<(), Box<dyn Error>> 
 
     assert!((once - 0.5).abs() < 0.01);
     assert!(twice > once);
+    Ok(())
+}
+
+#[test]
+fn predictive_hierarchy_explains_via_recursive_error_flow() -> Result<(), Box<dyn Error>> {
+    // Given: a three-level hierarchy of increasingly specific hypotheses.
+    let hierarchy = PredictiveHierarchy::new()
+        .with_level(Box::new(FixedPredictor::new(Expected::Contains(
+            "compiles".to_owned(),
+        ))))
+        .with_level(Box::new(FixedPredictor::new(Expected::Contains(
+            "syntax".to_owned(),
+        ))))
+        .with_level(Box::new(FixedPredictor::new(Expected::Contains(
+            "type".to_owned(),
+        ))));
+    assert_eq!(hierarchy.depth(), 3);
+
+    // When: a type error is observed. Level 0 ("compiles") fails, its error flows
+    // up to level 1 ("syntax") which also fails, and level 2 ("type") holds.
+    let chain = hierarchy.explain("build", &Outcome::new("error: type mismatch on x"));
+
+    // Then: the failure chain is two deep, and each level's rendered error fed the
+    // next as context.
+    assert_eq!(chain.len(), 2);
+    assert!(chain[0].to_string().contains("compiles"));
+    assert!(chain[1].to_string().contains("syntax"));
+
+    // And: when the top-level prediction holds immediately, nothing escalates.
+    let explained = hierarchy.explain("build", &Outcome::new("it compiles fine"));
+    assert!(explained.is_empty());
     Ok(())
 }
 

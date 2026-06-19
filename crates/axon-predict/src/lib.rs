@@ -191,7 +191,7 @@ fn token_distance(expected: &str, observed: &str) -> f32 {
 ///
 /// Predictors stack: a higher-level one can consume a lower's [`Mismatch`] as
 /// its own observation, forming a hierarchy of predictive coding.
-pub trait Predictor {
+pub trait Predictor: fmt::Debug {
     /// Predict what `context` (an action description) will yield.
     fn predict(&self, context: &str) -> Prediction;
 
@@ -245,6 +245,79 @@ impl Predictor for AssociativePredictor {
             .or_insert_with(|| (outcome.observed().to_owned(), 0));
         entry.0 = outcome.observed().to_owned();
         entry.1 = entry.1.saturating_add(1);
+    }
+}
+
+/// A predictor that always predicts a fixed [`Expected`], ignoring context and
+/// learning nothing — a constant level in a [`PredictiveHierarchy`] and a simple
+/// building block.
+#[derive(Debug, Clone)]
+pub struct FixedPredictor {
+    expected: Expected,
+}
+
+impl FixedPredictor {
+    pub const fn new(expected: Expected) -> Self {
+        Self { expected }
+    }
+}
+
+impl Predictor for FixedPredictor {
+    fn predict(&self, context: &str) -> Prediction {
+        Prediction::new(context, self.expected.clone())
+    }
+
+    fn observe(&mut self, _prediction: &Prediction, _outcome: &Outcome) {}
+}
+
+/// A hierarchy of predictors for recursive predictive coding.
+///
+/// Level 0 predicts the outcome; if it mismatches, the *rendered error* becomes
+/// the context for level 1, which predicts a higher-level cause; and so on. A
+/// high-level miss ("won't compile") thus generates a chain of increasingly
+/// specific hypotheses ("→ wrong type → rename"), errors flowing up through the
+/// stack until a level's hypothesis holds (the explanation) or levels run out.
+#[derive(Debug, Default)]
+pub struct PredictiveHierarchy {
+    levels: Vec<Box<dyn Predictor>>,
+}
+
+impl PredictiveHierarchy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a level above the current top of the hierarchy (builder).
+    #[must_use]
+    pub fn with_level(mut self, predictor: Box<dyn Predictor>) -> Self {
+        self.levels.push(predictor);
+        self
+    }
+
+    pub fn depth(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// Explain `outcome` for `context` by recursive predictive coding: each
+    /// level that mismatches passes its rendered error down as the next level's
+    /// context. Returns the chain of mismatches at the levels that failed,
+    /// stopping at the first level whose hypothesis holds (the explanation) or
+    /// when the levels are exhausted.
+    pub fn explain(&self, context: &str, outcome: &Outcome) -> Vec<Mismatch> {
+        let verifier = Verifier;
+        let mut chain = Vec::new();
+        let mut context = context.to_owned();
+        for level in &self.levels {
+            let prediction = level.predict(&context);
+            match verifier.verify(&prediction, outcome) {
+                Correction::Escalate(mismatch) => {
+                    context = mismatch.to_string();
+                    chain.push(mismatch);
+                }
+                Correction::Proceed | Correction::Retry { .. } => break,
+            }
+        }
+        chain
     }
 }
 

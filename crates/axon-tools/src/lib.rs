@@ -6,7 +6,7 @@ mod module;
 
 pub use command::{CommandOutput, CommandSpec, ShellCommand};
 pub use error::ToolError;
-pub use fs::FsRead;
+pub use fs::{FsList, FsRead};
 pub use git::{GitStatus, GitStatusOutput};
 pub use module::{ToolModule, ToolSignal};
 

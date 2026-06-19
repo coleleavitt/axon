@@ -1,0 +1,21 @@
+[package]
+name = "repo-scout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Example app: a tiny repository investigator built on the axon SDK."
+repository.workspace = true
+publish = false
+
+[dependencies]
+axon = { path = "../..", version = "=0.1.0" }
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+# Use the real OpenAI provider (needs OPENAI_API_KEY). Off by default so the
+# app runs fully offline against a mock provider.
+openai = ["axon/openai"]
+
+[lints]
+workspace = true

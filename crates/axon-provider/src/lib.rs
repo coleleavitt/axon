@@ -13,6 +13,12 @@ use std::fmt;
 
 use axon_core::BoxFuture;
 
+#[cfg(feature = "openai")]
+mod openai;
+
+#[cfg(feature = "openai")]
+pub use openai::OpenAiProvider;
+
 /// A model completion: the text a provider produced for a prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Completion {

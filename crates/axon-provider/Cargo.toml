@@ -9,9 +9,20 @@ repository.workspace = true
 
 [dependencies]
 axon-core = { path = "../axon-core", version = "=0.1.0" }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+# A real OpenAI Chat Completions provider. Off by default so the seam (trait +
+# MockProvider) stays dependency-free; enabling it pulls an async HTTP client.
+openai = ["dep:reqwest", "dep:serde", "dep:serde_json"]
 
 [lints]
 workspace = true

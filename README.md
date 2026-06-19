@@ -31,6 +31,7 @@ Beyond the routing primitives, the core also offers:
 - **An async runtime** — `AsyncRuntime` / `AsyncModule` for modules that do real I/O (tools, providers). It is runtime-agnostic: the library depends on no async executor.
 - **Event streaming** — `Runtime::run_observed` streams a `RunEvent` per transition for logging, tracing, or UI.
 - **Circuit breaking** — `CircuitBreaker` is a gate that opens after a failure threshold, isolating a route so one module can't cascade.
+- **A real provider** — enable the `openai` feature for an OpenAI Chat Completions `Provider`; the default seam ships only the trait and a deterministic `MockProvider`, so it stays dependency-free and offline-testable.
 - **Optional persistence** — enable the `serde` feature to snapshot and restore memory, workspace, and neuromodulator state.
 
 ```rust
@@ -67,4 +68,13 @@ cargo run --example integrated_loop  # the same layers driven through the core
 cargo run --example llm_planner      # a provider-proposed plan, run with event streaming
 ```
 
-The neuroscience research behind the naming and boundaries lives in `docs/research/`.
+## Example application
+
+`apps/repo-scout` is a small application that depends on the `axon` SDK the way a downstream consumer would: a provider proposes a plan, `propose_plan` types it, and the routed core executes it with real `FsList`/`FsRead` tools while streaming events.
+
+```bash
+cargo run -p repo-scout -- "survey this repository"            # offline, mock provider
+OPENAI_API_KEY=... cargo run -p repo-scout --features openai   # real OpenAI planning
+```
+
+The neuroscience research behind the naming and boundaries lives in `docs/research/`. A running map of which design principles are implemented versus still missing lives in `docs/research/notes/09_implementation_gap_analysis.md`.

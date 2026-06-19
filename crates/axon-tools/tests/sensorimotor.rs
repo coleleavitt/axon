@@ -3,7 +3,16 @@ use std::error::Error;
 use std::time::Duration;
 
 use axon_core::{Module, ModuleId, ModuleOutput, Signal};
-use axon_tools::{CommandSpec, FsRead, GitStatus, ShellCommand, Tool, ToolModule, ToolSignal};
+use axon_tools::{
+    CommandSpec,
+    FsList,
+    FsRead,
+    GitStatus,
+    ShellCommand,
+    Tool,
+    ToolModule,
+    ToolSignal,
+};
 
 #[test]
 fn fs_read_tool_reads_utf8_file_when_path_exists() -> Result<(), Box<dyn Error>> {
@@ -144,6 +153,51 @@ fn git_status_fails_for_non_git_directory() -> Result<(), Box<dyn Error>> {
     let result = tool.call(());
 
     // Then: it fails instead of reporting an empty clean branch.
+    assert!(result.is_err());
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn fs_list_lists_sorted_source_entries() -> Result<(), Box<dyn Error>> {
+    // Given: a list tool rooted at the crate manifest directory.
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut tool = FsList::new(root);
+
+    // When: the crate source directory is listed.
+    let entries = tool.call("src".to_owned())?;
+
+    // Then: it returns the module files this crate is built from.
+    assert!(entries.contains(&"fs.rs".to_owned()));
+    assert!(entries.contains(&"lib.rs".to_owned()));
+    Ok(())
+}
+
+#[test]
+fn fs_list_lists_root_and_marks_subdirectories() -> Result<(), Box<dyn Error>> {
+    // Given: a list tool rooted at the crate manifest directory.
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut tool = FsList::new(root);
+
+    // When: the root itself is listed via an empty path.
+    let entries = tool.call(String::new())?;
+
+    // Then: files appear plain and directories carry a trailing slash.
+    assert!(entries.contains(&"Cargo.toml".to_owned()));
+    assert!(entries.contains(&"src/".to_owned()));
+    Ok(())
+}
+
+#[test]
+fn fs_list_rejects_parent_directory_escape() -> Result<(), Box<dyn Error>> {
+    // Given: a list tool rooted at an isolated directory.
+    let root = temp_dir("axon-tools-list")?;
+    let mut tool = FsList::new(root.clone());
+
+    // When: a parent-directory traversal is requested.
+    let result = tool.call("..".to_owned());
+
+    // Then: it is refused instead of escaping the root.
     assert!(result.is_err());
     std::fs::remove_dir_all(root)?;
     Ok(())

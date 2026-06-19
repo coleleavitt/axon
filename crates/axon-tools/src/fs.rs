@@ -49,6 +49,54 @@ impl Tool for FsRead {
     }
 }
 
+/// Lists directory entries within a sandbox root, using the same path-safety
+/// model as [`FsRead`]: relative paths only, no `..`, and the resolved target
+/// must stay inside the root.
+#[derive(Debug)]
+pub struct FsList {
+    root: PathBuf,
+}
+
+impl FsList {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+}
+
+impl Tool for FsList {
+    /// A relative directory; empty or `"."` lists the root itself.
+    type Input = String;
+    /// Sorted entry names, directories suffixed with `/`.
+    type Output = Vec<String>;
+    type Error = ToolError;
+
+    fn call(&mut self, input: Self::Input) -> Result<Self::Output, Self::Error> {
+        let root = self.root.canonicalize().map_err(ToolError::Io)?;
+        let relative = input.trim();
+        let target = if relative.is_empty() || relative == "." {
+            root.clone()
+        } else {
+            safe_join(&root, Path::new(relative))?
+        };
+        let canonical = target.canonicalize().map_err(ToolError::Io)?;
+        if !canonical.starts_with(&root) {
+            return Err(ToolError::UnsafePath { path: canonical });
+        }
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(&canonical).map_err(ToolError::Io)? {
+            let entry = entry.map_err(ToolError::Io)?;
+            let suffix = if entry.file_type().map_err(ToolError::Io)?.is_dir() {
+                "/"
+            } else {
+                ""
+            };
+            entries.push(format!("{}{suffix}", entry.file_name().to_string_lossy()));
+        }
+        entries.sort();
+        Ok(entries)
+    }
+}
+
 fn safe_join(root: &Path, rel: &Path) -> Result<PathBuf, ToolError> {
     if rel.is_absolute()
         || rel

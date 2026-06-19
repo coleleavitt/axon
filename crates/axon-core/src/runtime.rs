@@ -372,6 +372,36 @@ impl<P> Runtime<P> {
         self.routing.homeostatic_scale(max_total);
     }
 
+    /// Lay synaptic tags over a finished run's trajectory without consolidating
+    /// them yet — see [`RoutingTable::tag_trajectory`].
+    pub fn tag_trajectory(&mut self, steps: &[TraceStep], decay: f32, retention: f32) {
+        self.routing.tag_trajectory(steps, decay, retention);
+    }
+
+    /// Apply a delayed global capture to all tagged edges — see
+    /// [`RoutingTable::capture`].
+    pub fn capture(
+        &mut self,
+        plasticity: &dyn Plasticity,
+        error: f32,
+        learning_rate: f32,
+        observer: &mut dyn FnMut(&RunEvent),
+    ) {
+        self.routing
+            .capture(plasticity, error, learning_rate, observer);
+    }
+
+    /// How many edges currently carry a synaptic tag — see
+    /// [`RoutingTable::tagged_edges`].
+    pub fn tagged_edges(&self) -> usize {
+        self.routing.tagged_edges()
+    }
+
+    /// The metaplasticity activity level — see [`RoutingTable::recent_activity`].
+    pub const fn recent_activity(&self) -> f32 {
+        self.routing.recent_activity()
+    }
+
     /// The total magnitude of learned weight across all edges — see
     /// [`RoutingTable::learned_magnitude`].
     pub fn learned_magnitude(&self) -> u64 {

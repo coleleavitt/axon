@@ -232,6 +232,53 @@ fn homeostatic_scaling_caps_total_learned_magnitude() -> Result<(), Box<dyn Erro
 }
 
 #[test]
+fn a_tag_set_now_consolidates_only_on_a_later_capture() -> Result<(), Box<dyn Error>> {
+    // Given: a run whose trajectory is tagged but not yet reinforced.
+    let mut runtime = chain_runtime()?;
+    let report = runtime.run(InputId::new("in")?, Signal::new(1))?;
+    runtime.tag_trajectory(report.steps(), 0.9, 1.0);
+
+    // Then: tags mark eligibility, but no weight has changed yet.
+    assert!(runtime.tagged_edges() >= 2);
+    assert_eq!(runtime.learned_magnitude(), 0);
+
+    // When: a later global capture (a delayed reward) arrives.
+    let plasticity = ProportionalPlasticity::default();
+    runtime.capture(&plasticity, 0.0, 1.0, &mut |_| {});
+
+    // Then: the tagged edges consolidate and the tags clear.
+    assert!(runtime.learned_magnitude() > 0);
+    assert_eq!(runtime.tagged_edges(), 0);
+    assert!(learned_of(&runtime.learned_weights(), &input_edge("a")?).unwrap_or(0) > 0);
+    Ok(())
+}
+
+#[test]
+fn metaplasticity_damps_repeated_captures() -> Result<(), Box<dyn Error>> {
+    // Given: a fresh runtime and a first tag+capture cycle.
+    let mut runtime = chain_runtime()?;
+    let plasticity = ProportionalPlasticity::default();
+    let first = runtime.run(InputId::new("in")?, Signal::new(1))?;
+    runtime.tag_trajectory(first.steps(), 0.9, 1.0);
+    runtime.capture(&plasticity, 0.0, 1.0, &mut |_| {});
+    let first_gain = runtime.learned_magnitude();
+    assert!(first_gain > 0);
+    assert!(runtime.recent_activity() > 0.0);
+
+    // When: an identical second cycle runs.
+    let before_second = runtime.learned_magnitude();
+    let second = runtime.run(InputId::new("in")?, Signal::new(1))?;
+    runtime.tag_trajectory(second.steps(), 0.9, 1.0);
+    runtime.capture(&plasticity, 0.0, 1.0, &mut |_| {});
+    let second_gain = runtime.learned_magnitude() - before_second;
+
+    // Then: the second capture moves the weights far less — plasticity of
+    // plasticity, the BCM sliding threshold resisting further change.
+    assert!(second_gain < first_gain);
+    Ok(())
+}
+
+#[test]
 fn decay_pulls_learning_back_toward_the_prior() -> Result<(), Box<dyn Error>> {
     let mut runtime = two_route_runtime()?;
     let report = runtime.run(InputId::new("in")?, Signal::new(1))?;

@@ -16,11 +16,21 @@ use crate::signal::Signal;
 #[derive(Debug)]
 pub struct RoutingTable<P> {
     routes: Vec<Route<P>>,
+    /// Persistent synaptic tags: per-edge eligibility that survives across runs
+    /// until a later `capture` consolidates it (synaptic tagging & capture).
+    tags: Vec<(EdgeId, f32)>,
+    /// Metaplasticity state: an EMA of recently-applied weight-change magnitude;
+    /// high recent plasticity damps the effective learning rate (BCM threshold).
+    recent: f32,
 }
 
 impl<P> RoutingTable<P> {
     pub const fn new() -> Self {
-        Self { routes: Vec::new() }
+        Self {
+            routes: Vec::new(),
+            tags: Vec::new(),
+            recent: 0.0,
+        }
     }
 
     pub fn push(&mut self, route: Route<P>) {
@@ -294,6 +304,90 @@ impl<P> RoutingTable<P> {
         for route in &mut self.routes {
             route.decay(rate);
         }
+    }
+
+    /// Lay synaptic tags over the edges a run traversed, accumulating into the
+    /// persistent trace (faded by `retention` first so older tags decay). A tag
+    /// marks an edge *eligible* for a later consolidating reward — decoupling
+    /// *which* edges learn from *when* they consolidate. `decay` is the within-run
+    /// eligibility λ. No weights change here; that waits for [`capture`](Self::capture).
+    pub fn tag_trajectory(&mut self, steps: &[TraceStep], decay: f32, retention: f32) {
+        let retention = retention.clamp(0.0, 1.0);
+        for (_, tag) in &mut self.tags {
+            *tag *= retention;
+        }
+        for (edge, eligibility) in eligibility_trace(steps, decay) {
+            match self.tags.iter_mut().find(|(id, _)| *id == edge) {
+                Some((_, tag)) => *tag += eligibility,
+                None => self.tags.push((edge, eligibility)),
+            }
+        }
+        self.tags.retain(|(_, tag)| *tag > 0.01);
+    }
+
+    /// The number of edges currently carrying a synaptic tag.
+    pub fn tagged_edges(&self) -> usize {
+        self.tags.len()
+    }
+
+    /// Apply a delayed, global consolidating reward (a neuromodulatory "capture")
+    /// to every tagged edge, scaled by its accumulated tag and a *metaplastic*
+    /// learning rate, then clear the tags and emit a [`RunEvent::Reinforced`] per
+    /// changed edge.
+    ///
+    /// This is the late phase of synaptic tagging-and-capture: tags set during
+    /// earlier runs consolidate only when this global signal arrives. The
+    /// effective learning rate is damped by recent plasticity (BCM-style: an edge
+    /// that has been changing a lot resists further change), so repeated captures
+    /// stop swinging the graph.
+    pub fn capture(
+        &mut self,
+        plasticity: &dyn Plasticity,
+        error: f32,
+        learning_rate: f32,
+        observer: &mut dyn FnMut(&RunEvent),
+    ) {
+        let rate = self.metaplastic_rate(learning_rate);
+        let tags = std::mem::take(&mut self.tags);
+        let mut applied = 0.0;
+        for (edge, tag) in tags {
+            let delta = plasticity.delta(Credit {
+                error,
+                eligibility: tag,
+                learning_rate: rate,
+            });
+            if delta == 0 {
+                continue;
+            }
+            let mut changed = false;
+            for route in self.routes.iter_mut().filter(|route| route.edge() == edge) {
+                route.reinforce(delta);
+                changed = true;
+            }
+            if changed {
+                applied += f32::from(delta.unsigned_abs());
+                observer(&RunEvent::Reinforced {
+                    edge: edge.clone(),
+                    delta,
+                });
+            }
+        }
+        self.note_activity(applied);
+    }
+
+    /// BCM-style metaplastic learning rate: damped while recent plasticity has
+    /// been high, recovering toward the baseline as activity quiets.
+    fn metaplastic_rate(&self, learning_rate: f32) -> f32 {
+        learning_rate / (1.0 + self.recent)
+    }
+
+    fn note_activity(&mut self, applied: f32) {
+        self.recent = 0.5 * self.recent + 0.5 * applied;
+    }
+
+    /// The current metaplasticity activity level (EMA of recent applied change).
+    pub const fn recent_activity(&self) -> f32 {
+        self.recent
     }
 
     /// The total magnitude of learned weight across all edges (the L1 norm of the

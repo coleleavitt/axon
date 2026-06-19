@@ -10,6 +10,20 @@ Axon is a small Rust SDK core for agentic systems. The core only owns the signal
 
 It intentionally does not include LLM providers, memory, tools, or UI. Those belong in modules that plug into the core.
 
+The repository is now an SDK workspace:
+
+| Crate | Brain analog | Owns |
+|---|---|---|
+| `axon-core` | axons, thalamus, basal ganglia | typed signals, routes, gates, runtime |
+| `axon-tools` | sensorimotor cortex | filesystem, shell, git, typed tool modules |
+| `axon-memory` | hippocampus | episodes, deterministic recall, consolidation |
+| `axon-predict` | cerebellum | predictions, outcomes, verifier corrections |
+| `axon-modulate` | neuromodulators | mode, attention, exploration, risk, learning knobs |
+| `axon-workspace` | global workspace | bounded active context and broadcasts |
+| `axon-exec` | prefrontal cortex | plan observation and policy decisions |
+
+The root `axon` crate is a facade: it re-exports `axon-core` at the top level and exposes the other crates as modules.
+
 ```rust
 use axon::{Allow, FnModule, InputId, ModuleError, ModuleId, ModuleOutput, Runtime, Signal, Weight};
 
@@ -39,6 +53,7 @@ Run the library surface example with:
 
 ```bash
 cargo run --example basic_loop
+cargo run --example neuro_stack
 ```
 
 The neuroscience research behind the naming and boundaries lives in `docs/research/`.

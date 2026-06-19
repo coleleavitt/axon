@@ -1,0 +1,14 @@
+[package]
+name = "axon-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Bounded global workspace layer for Axon."
+repository.workspace = true
+
+[dependencies]
+axon-core = { path = "../axon-core", version = "=0.1.0" }
+
+[lints]
+workspace = true

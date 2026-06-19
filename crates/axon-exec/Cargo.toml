@@ -1,0 +1,18 @@
+[package]
+name = "axon-exec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Prefrontal executive layer for Axon."
+repository.workspace = true
+
+[dependencies]
+axon-core = { path = "../axon-core", version = "=0.1.0" }
+axon-memory = { path = "../axon-memory", version = "=0.1.0" }
+axon-modulate = { path = "../axon-modulate", version = "=0.1.0" }
+axon-predict = { path = "../axon-predict", version = "=0.1.0" }
+axon-workspace = { path = "../axon-workspace", version = "=0.1.0" }
+
+[lints]
+workspace = true

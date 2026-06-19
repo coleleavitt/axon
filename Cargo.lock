@@ -5,3 +5,62 @@ version = 4
 [[package]]
 name = "axon"
 version = "0.1.0"
+dependencies = [
+ "axon-core",
+ "axon-exec",
+ "axon-memory",
+ "axon-modulate",
+ "axon-predict",
+ "axon-tools",
+ "axon-workspace",
+]
+
+[[package]]
+name = "axon-core"
+version = "0.1.0"
+
+[[package]]
+name = "axon-exec"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+ "axon-memory",
+ "axon-modulate",
+ "axon-predict",
+ "axon-workspace",
+]
+
+[[package]]
+name = "axon-memory"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+]
+
+[[package]]
+name = "axon-modulate"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+]
+
+[[package]]
+name = "axon-predict"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+]
+
+[[package]]
+name = "axon-tools"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+]
+
+[[package]]
+name = "axon-workspace"
+version = "0.1.0"
+dependencies = [
+ "axon-core",
+]

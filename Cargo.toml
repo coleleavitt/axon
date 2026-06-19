@@ -6,13 +6,33 @@ rust-version = "1.85"
 description = "A tiny typed routing core for agentic SDKs."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/coleleavitt/axon"
 exclude = [
     "docs/research/papers/**",
     "docs/research/deep_research_reports/**",
     "jfc-transcript.md",
+    "session-*.md",
 ]
 
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/coleleavitt/axon"
+
 [dependencies]
+axon-core = { path = "crates/axon-core", version = "=0.1.0" }
+axon-exec = { path = "crates/axon-exec", version = "=0.1.0" }
+axon-memory = { path = "crates/axon-memory", version = "=0.1.0" }
+axon-modulate = { path = "crates/axon-modulate", version = "=0.1.0" }
+axon-predict = { path = "crates/axon-predict", version = "=0.1.0" }
+axon-tools = { path = "crates/axon-tools", version = "=0.1.0" }
+axon-workspace = { path = "crates/axon-workspace", version = "=0.1.0" }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -20,6 +40,17 @@ unused_must_use = "deny"
 non_ascii_idents = "deny"
 
 [lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+non_ascii_idents = "deny"
+
+[workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"

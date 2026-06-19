@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prediction {
@@ -144,6 +144,61 @@ fn token_distance(expected: &str, observed: &str) -> f32 {
     }
     let intersection = expected.intersection(&observed).count();
     1.0 - (intersection as f32 / union as f32)
+}
+
+/// A forward model: it *predicts* what a context will produce and *learns* from
+/// the outcome, so predictions stop being hand-written and improve with
+/// experience (the cerebellar forward model trained by the error signal).
+///
+/// Predictors stack: a higher-level one can consume a lower's [`Mismatch`] as
+/// its own observation, forming a hierarchy of predictive coding.
+pub trait Predictor {
+    /// Predict what `context` (an action description) will yield.
+    fn predict(&self, context: &str) -> Prediction;
+
+    /// Update internal state from an observed `outcome` for `prediction`.
+    fn observe(&mut self, prediction: &Prediction, outcome: &Outcome);
+}
+
+/// A minimal learned forward model: it remembers the most recent outcome per
+/// context and predicts that it recurs. Unknown contexts predict
+/// [`Expected::Anything`] (no basis to be wrong yet); once observed, the context
+/// predicts [`Expected::Contains`] of what was seen, so a contradiction
+/// escalates.
+#[derive(Debug, Default, Clone)]
+pub struct AssociativePredictor {
+    seen: BTreeMap<String, String>,
+}
+
+impl AssociativePredictor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// How many distinct contexts the model has learned.
+    pub fn len(&self) -> usize {
+        self.seen.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
+}
+
+impl Predictor for AssociativePredictor {
+    fn predict(&self, context: &str) -> Prediction {
+        match self.seen.get(context) {
+            Some(observed) => Prediction::new(context, Expected::Contains(observed.clone())),
+            None => Prediction::new(context, Expected::Anything),
+        }
+    }
+
+    fn observe(&mut self, prediction: &Prediction, outcome: &Outcome) {
+        self.seen.insert(
+            prediction.action().to_owned(),
+            outcome.observed().to_owned(),
+        );
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]

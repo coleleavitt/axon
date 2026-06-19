@@ -1,6 +1,14 @@
 use std::error::Error;
 
-use axon_predict::{Correction, Expected, Outcome, Prediction, Verifier};
+use axon_predict::{
+    AssociativePredictor,
+    Correction,
+    Expected,
+    Outcome,
+    Prediction,
+    Predictor,
+    Verifier,
+};
 
 #[test]
 fn verifier_accepts_matching_prediction_and_outcome() -> Result<(), Box<dyn Error>> {
@@ -59,6 +67,40 @@ fn correction_exposes_propagable_prediction_error() -> Result<(), Box<dyn Error>
         &Outcome::new("ok"),
     );
     assert!(clean.mismatch().is_none());
+    Ok(())
+}
+
+#[test]
+fn forward_model_learns_to_predict_observed_outcomes() -> Result<(), Box<dyn Error>> {
+    // Given: an untrained forward model.
+    let mut model = AssociativePredictor::new();
+    assert!(model.is_empty());
+
+    // When/Then: an unseen context predicts Anything, so it cannot yet be wrong.
+    let blank = model.predict("read manifest");
+    assert_eq!(blank.expected(), &Expected::Anything);
+    assert_eq!(
+        Verifier.verify(&blank, &Outcome::new("name = axon")),
+        Correction::Proceed
+    );
+
+    // When: it observes an outcome for that context.
+    model.observe(&blank, &Outcome::new("name = axon"));
+    assert_eq!(model.len(), 1);
+
+    // Then: it now predicts the learned outcome — the same result verifies, a
+    // contradicting one escalates with a real error.
+    let learned = model.predict("read manifest");
+    assert_eq!(
+        Verifier.verify(&learned, &Outcome::new("name = axon")),
+        Correction::Proceed
+    );
+    assert!(
+        Verifier
+            .verify(&learned, &Outcome::new("totally different"))
+            .mismatch()
+            .is_some()
+    );
     Ok(())
 }
 

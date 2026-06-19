@@ -6,6 +6,22 @@ use axon_modulate::{Mode, Modulators};
 use axon_predict::{Correction, Outcome, Prediction, Verifier};
 use axon_workspace::{Broadcast, Workspace};
 
+mod agent;
+mod planning;
+
+pub use agent::{
+    AgentSignal,
+    Executive,
+    OnAct,
+    OnAdvance,
+    OnGoal,
+    OnObserve,
+    Planner,
+    RoutedTool,
+    wire_loop,
+};
+pub use planning::{plan_prompt, propose_plan};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
     action: String,
@@ -118,18 +134,25 @@ impl Executor {
     }
 
     fn decide(&self, correction: Correction) -> Decision {
-        match correction {
-            Correction::Proceed => Decision::Continue,
-            Correction::Retry { reason } => Decision::Retry { reason },
-            Correction::Escalate(mismatch) => match self.modulators.mode() {
-                Mode::Exploratory => Decision::Retry {
-                    reason: format!("retry after mismatch in {}", mismatch.action()),
-                },
-                Mode::Baseline | Mode::Focused | Mode::Salient => Decision::Escalate {
-                    reason: format!("prediction mismatch in {}", mismatch.action()),
-                },
+        decide(correction, self.modulators.mode())
+    }
+}
+
+/// Map a verifier [`Correction`] onto an executive [`Decision`], modulated by the
+/// active [`Mode`]. Shared by the directly-composed [`Executor`] and the routed
+/// [`Executive`] module so both reach identical policy conclusions.
+pub(crate) fn decide(correction: Correction, mode: Mode) -> Decision {
+    match correction {
+        Correction::Proceed => Decision::Continue,
+        Correction::Retry { reason } => Decision::Retry { reason },
+        Correction::Escalate(mismatch) => match mode {
+            Mode::Exploratory => Decision::Retry {
+                reason: format!("retry after mismatch in {}", mismatch.action()),
             },
-        }
+            Mode::Baseline | Mode::Focused | Mode::Salient => Decision::Escalate {
+                reason: format!("prediction mismatch in {}", mismatch.action()),
+            },
+        },
     }
 }
 

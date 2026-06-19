@@ -45,6 +45,8 @@ impl Outcome {
     }
 }
 
+use std::fmt;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Correction {
     Proceed,
@@ -52,11 +54,32 @@ pub enum Correction {
     Escalate(Mismatch),
 }
 
+impl Correction {
+    /// The propagable prediction error, when the outcome contradicted the
+    /// prediction. This is the "diff" a predictive layer sends upward.
+    pub const fn mismatch(&self) -> Option<&Mismatch> {
+        match self {
+            Self::Escalate(mismatch) => Some(mismatch),
+            Self::Proceed | Self::Retry { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mismatch {
     action: String,
     expected: Expected,
     observed: String,
+}
+
+impl fmt::Display for Mismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: expected {:?}, observed {:?}",
+            self.action, self.expected, self.observed
+        )
+    }
 }
 
 impl Mismatch {

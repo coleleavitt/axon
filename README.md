@@ -20,9 +20,18 @@ The repository is now an SDK workspace:
 | `axon-predict` | cerebellum | predictions, outcomes, verifier corrections |
 | `axon-modulate` | neuromodulators | mode, attention, exploration, risk, learning knobs |
 | `axon-workspace` | global workspace | bounded active context and broadcasts |
-| `axon-exec` | prefrontal cortex | plan observation and policy decisions |
+| `axon-exec` | prefrontal cortex | plan observation, policy decisions, provider-backed planning |
+| `axon-provider` | language areas | the async, vendor-agnostic seam model calls live behind |
 
 The root `axon` crate is a facade: it re-exports `axon-core` at the top level and exposes the other crates as modules.
+
+Beyond the routing primitives, the core also offers:
+
+- **A routed agent loop** — the plan→act→observe cycle expressed as `Module`s wired by content-addressed gates (`axon::exec::wire_loop`), so the cognitive layers run *through* the core rather than beside it.
+- **An async runtime** — `AsyncRuntime` / `AsyncModule` for modules that do real I/O (tools, providers). It is runtime-agnostic: the library depends on no async executor.
+- **Event streaming** — `Runtime::run_observed` streams a `RunEvent` per transition for logging, tracing, or UI.
+- **Circuit breaking** — `CircuitBreaker` is a gate that opens after a failure threshold, isolating a route so one module can't cascade.
+- **Optional persistence** — enable the `serde` feature to snapshot and restore memory, workspace, and neuromodulator state.
 
 ```rust
 use axon::{Allow, FnModule, InputId, ModuleError, ModuleId, ModuleOutput, Runtime, Signal, Weight};
@@ -52,8 +61,10 @@ assert_eq!(report.steps().len(), 1);
 Run the library surface example with:
 
 ```bash
-cargo run --example basic_loop
-cargo run --example neuro_stack
+cargo run --example basic_loop      # the bare routing core
+cargo run --example neuro_stack      # layers composed directly in an Executor
+cargo run --example integrated_loop  # the same layers driven through the core
+cargo run --example llm_planner      # a provider-proposed plan, run with event streaming
 ```
 
 The neuroscience research behind the naming and boundaries lives in `docs/research/`.

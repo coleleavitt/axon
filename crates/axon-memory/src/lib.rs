@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryId(u64);
 
 impl MemoryId {
@@ -12,6 +13,7 @@ impl MemoryId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Episode {
     id: MemoryId,
     text: String,
@@ -59,6 +61,7 @@ pub trait MemoryStore {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EpisodicStore {
     episodes: Vec<Episode>,
     next_id: u64,
@@ -85,6 +88,16 @@ impl Default for EpisodicStore {
 
 impl MemoryStore for EpisodicStore {
     fn encode(&mut self, mut episode: Episode) -> MemoryId {
+        // Pattern separation (dentate gyrus): never store a memory that is not
+        // separable from one already held. A re-encoded duplicate returns the
+        // existing id instead of accumulating redundant episodes.
+        if let Some(existing) = self
+            .episodes
+            .iter()
+            .find(|stored| same_memory(stored.text(), episode.text()))
+        {
+            return existing.id();
+        }
         let id = MemoryId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
         episode.assign(id);
@@ -98,14 +111,43 @@ impl MemoryStore for EpisodicStore {
             .iter()
             .filter_map(|episode| RecallResult::from_episode(episode, query))
             .collect();
+        // Rank by relevance, breaking ties toward more recent memories (higher
+        // id) so recency biases retrieval the way episodic recall does.
         results.sort_by(|left, right| {
             right
                 .score
                 .cmp(&left.score)
-                .then_with(|| left.episode.id.cmp(&right.episode.id))
+                .then_with(|| right.episode.id.cmp(&left.episode.id))
         });
         results
     }
+}
+
+/// Two memories are the same when their text is equal after trimming and
+/// case-folding — the orthogonalization rule applied on write.
+fn same_memory(left: &str, right: &str) -> bool {
+    left.trim().eq_ignore_ascii_case(right.trim())
+}
+
+/// Split text into lowercased alphanumeric tokens for content-addressable
+/// matching from partial cues.
+fn tokenize(text: &str) -> Vec<String> {
+    text.split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Count how many cue tokens are present in the episode text. More overlapping
+/// words means a stronger partial-cue match, not just a yes/no `contains`.
+fn lexical_overlap(query: &str, text: &str) -> u32 {
+    let text_tokens = tokenize(text);
+    tokenize(query)
+        .into_iter()
+        .filter(|cue| text_tokens.contains(cue))
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,7 +190,7 @@ pub struct RecallResult<'a> {
 
 impl<'a> RecallResult<'a> {
     fn from_episode(episode: &'a Episode, query: &RecallQuery) -> Option<Self> {
-        let text_score = u32::from(!query.text.is_empty() && episode.text.contains(&query.text));
+        let text_score = lexical_overlap(&query.text, &episode.text);
         let tag_score = query
             .tags
             .iter()
@@ -198,6 +240,7 @@ impl Consolidator {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SchemaMemory {
     tag: String,
     support: usize,

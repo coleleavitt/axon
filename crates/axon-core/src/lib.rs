@@ -1,4 +1,6 @@
+mod breaker;
 mod error;
+mod event;
 mod gate;
 mod id;
 mod limit;
@@ -7,9 +9,12 @@ mod report;
 mod route;
 mod routing;
 mod runtime;
+mod runtime_async;
 mod signal;
 
+pub use breaker::CircuitBreaker;
 pub use error::RuntimeError;
+pub use event::RunEvent;
 pub use gate::{Allow, DropSignal, Gate, MinPriority};
 pub use id::{EndpointId, IdError, InputId, InputIdError, ModuleId, ModuleIdError};
 pub use limit::{StepLimit, StepLimitError};
@@ -18,4 +23,5 @@ pub use report::{RunReport, RunStatus, TraceStep};
 pub use route::{Route, Weight};
 pub use routing::{RoutingError, RoutingTable};
 pub use runtime::{AgentLoop, Runtime};
+pub use runtime_async::{AsyncModule, AsyncRuntime, BoxFuture};
 pub use signal::{Priority, Signal};

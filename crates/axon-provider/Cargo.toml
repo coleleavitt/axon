@@ -1,21 +1,17 @@
 [package]
-name = "axon-workspace"
+name = "axon-provider"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Bounded global workspace layer for Axon."
+description = "LLM provider seam for Axon: the typed boundary model calls live behind."
 repository.workspace = true
 
 [dependencies]
 axon-core = { path = "../axon-core", version = "=0.1.0" }
-serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
-serde_json = "1"
-
-[features]
-serde = ["dep:serde"]
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [lints]
 workspace = true

@@ -35,3 +35,29 @@ fn verifier_escalates_missing_expected_evidence() -> Result<(), Box<dyn Error>> 
     }
     Ok(())
 }
+
+#[test]
+fn correction_exposes_propagable_prediction_error() -> Result<(), Box<dyn Error>> {
+    // Given: a contradicted prediction.
+    let prediction = Prediction::new("read manifest", Expected::Contains("absent".to_owned()));
+    let correction = Verifier.verify(&prediction, &Outcome::new("Cargo package axon"));
+
+    // When: the prediction error delta is requested for upward propagation.
+    let Some(mismatch) = correction.mismatch() else {
+        panic!("expected a propagable mismatch");
+    };
+
+    // Then: it renders the action plus the expected/observed diff.
+    let rendered = mismatch.to_string();
+    assert!(rendered.contains("read manifest"));
+    assert!(rendered.contains("absent"));
+    assert!(rendered.contains("Cargo package axon"));
+
+    // And: a proceeding correction carries no error.
+    let clean = Verifier.verify(
+        &Prediction::new("noop", Expected::Anything),
+        &Outcome::new("ok"),
+    );
+    assert!(clean.mismatch().is_none());
+    Ok(())
+}

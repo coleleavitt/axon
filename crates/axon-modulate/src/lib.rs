@@ -4,6 +4,7 @@ use std::fmt;
 use axon_core::Priority;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Mode {
     Baseline,
     Focused,
@@ -12,6 +13,7 @@ pub enum Mode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gain(f32);
 
 impl Gain {
@@ -33,6 +35,7 @@ impl Gain {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LearningRate(Gain);
 
 impl LearningRate {
@@ -46,6 +49,7 @@ impl LearningRate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Exploration(Gain);
 
 impl Exploration {
@@ -59,6 +63,7 @@ impl Exploration {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Attention(Gain);
 
 impl Attention {
@@ -72,6 +77,7 @@ impl Attention {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RiskTolerance(Gain);
 
 impl RiskTolerance {
@@ -85,6 +91,7 @@ impl RiskTolerance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Modulators {
     mode: Mode,
     learning_rate: LearningRate,

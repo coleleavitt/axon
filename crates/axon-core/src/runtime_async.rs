@@ -1,25 +1,45 @@
+//! An async counterpart to [`Runtime`](crate::Runtime) for modules that do
+//! real I/O — tool calls, network, model providers. It is deliberately
+//! runtime-agnostic: modules return boxed futures and the caller awaits the run
+//! on whatever executor they already use. The core depends on no async runtime.
+
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::error::RuntimeError;
 use crate::event::RunEvent;
 use crate::gate::Gate;
 use crate::id::{EndpointId, InputId, ModuleId};
 use crate::limit::StepLimit;
-use crate::module::{Module, ModuleOutput};
+use crate::module::{ModuleError, ModuleOutput};
 use crate::report::{RunReport, RunStatus, TraceStep};
 use crate::route::{Route, Weight};
 use crate::routing::RoutingTable;
 use crate::signal::Signal;
 
+/// A heap-allocated future, so the [`AsyncModule`] trait stays dyn-compatible.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+/// The async analogue of [`Module`](crate::Module): `handle` returns a future
+/// instead of a value, so a module can await I/O before producing its output.
+pub trait AsyncModule<P>: fmt::Debug {
+    fn id(&self) -> &ModuleId;
+
+    fn handle(&mut self, signal: Signal<P>) -> BoxFuture<'_, Result<ModuleOutput<P>, ModuleError>>;
+}
+
+/// Routes typed signals between [`AsyncModule`]s, awaiting each module in turn.
 #[derive(Debug)]
-pub struct Runtime<P> {
-    modules: HashMap<ModuleId, Box<dyn Module<P>>>,
+pub struct AsyncRuntime<P> {
+    modules: HashMap<ModuleId, Box<dyn AsyncModule<P>>>,
     routing: RoutingTable<P>,
     step_limit: StepLimit,
 }
 
-impl<P> Runtime<P> {
+impl<P> AsyncRuntime<P> {
     pub fn new(step_limit: StepLimit) -> Self {
         Self {
             modules: HashMap::new(),
@@ -30,7 +50,7 @@ impl<P> Runtime<P> {
 
     pub fn insert_module<M>(&mut self, module: M) -> Result<(), RuntimeError>
     where
-        M: Module<P> + 'static,
+        M: AsyncModule<P> + 'static,
     {
         let id = module.id().clone();
         match self.modules.entry(id.clone()) {
@@ -90,18 +110,18 @@ impl<P> Runtime<P> {
         self.add_route(EndpointId::from(from), to, weight, gate)
     }
 
-    pub fn run(
+    pub async fn run_async(
         &mut self,
         entry: InputId,
         initial: Signal<P>,
     ) -> Result<RunReport<P>, RuntimeError> {
-        self.run_observed(entry, initial, &mut |_event| {})
+        self.run_async_observed(entry, initial, &mut |_event| {})
+            .await
     }
 
-    /// Drive a signal like [`run`](Self::run), additionally streaming each
-    /// [`RunEvent`] to `observer` as the transition happens. `run` is exactly
-    /// this with a no-op observer.
-    pub fn run_observed(
+    /// Like [`run_async`](Self::run_async), streaming each [`RunEvent`] to
+    /// `observer` as it happens.
+    pub async fn run_async_observed(
         &mut self,
         entry: InputId,
         initial: Signal<P>,
@@ -120,8 +140,7 @@ impl<P> Runtime<P> {
                 });
             }
 
-            let selected = self.routing.select(&at, &signal)?;
-            let Some(route) = selected else {
+            let Some(route) = self.routing.select(&at, &signal)? else {
                 return Ok(RunReport::new(RunStatus::NoRoute { at, signal }, steps));
             };
 
@@ -137,7 +156,7 @@ impl<P> Runtime<P> {
                 to: to.clone(),
             });
 
-            match module.handle(signal) {
+            match module.handle(signal).await {
                 Ok(ModuleOutput::Emit(next)) => {
                     observer(&RunEvent::Emitted { at: to.clone() });
                     at = EndpointId::from(to);
@@ -155,20 +174,10 @@ impl<P> Runtime<P> {
             }
         }
     }
-
-    pub fn module_count(&self) -> usize {
-        self.modules.len()
-    }
-
-    pub fn route_count(&self) -> usize {
-        self.routing.len()
-    }
 }
 
-impl<P> Default for Runtime<P> {
+impl<P> Default for AsyncRuntime<P> {
     fn default() -> Self {
         Self::new(StepLimit::default())
     }
 }
-
-pub type AgentLoop<P> = Runtime<P>;

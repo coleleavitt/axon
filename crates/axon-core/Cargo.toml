@@ -9,5 +9,8 @@ repository.workspace = true
 
 [dependencies]
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [lints]
 workspace = true

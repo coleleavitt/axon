@@ -3,6 +3,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Goal(String);
 
 impl Goal {
@@ -21,6 +22,7 @@ impl Goal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Broadcast {
     kind: BroadcastKind,
     text: String,
@@ -41,6 +43,13 @@ impl Broadcast {
         }
     }
 
+    pub fn alert(text: impl Into<String>) -> Self {
+        Self {
+            kind: BroadcastKind::Alert,
+            text: text.into(),
+        }
+    }
+
     pub const fn kind(&self) -> BroadcastKind {
         self.kind
     }
@@ -51,6 +60,7 @@ impl Broadcast {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BroadcastKind {
     Observation,
     Decision,
@@ -58,6 +68,7 @@ pub enum BroadcastKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Workspace {
     capacity: NonZeroUsize,
     goal: Option<Goal>,

@@ -23,6 +23,9 @@ pub struct Runtime<P> {
     /// Softmax temperature for route selection — the load-bearing `exploration`
     /// neuromodulator. `0.0` (default) means deterministic argmax selection.
     exploration: f32,
+    /// NoGo selection margin: a winner must beat the runner-up by at least this
+    /// many weight points or the runtime declines to act. `0` (default) disables.
+    margin: i16,
     /// The seed this runtime's [`Rng`] was created from, surfaced for replay.
     seed: u64,
     rng: Rng,
@@ -35,6 +38,7 @@ impl<P> Runtime<P> {
             routing: RoutingTable::new(),
             step_limit,
             exploration: 0.0,
+            margin: 0,
             seed: DEFAULT_SEED,
             rng: Rng::seeded(DEFAULT_SEED),
         }
@@ -66,6 +70,21 @@ impl<P> Runtime<P> {
     /// The active exploration temperature.
     pub const fn exploration(&self) -> f32 {
         self.exploration
+    }
+
+    /// Require a NoGo selection margin: a winning route must beat the runner-up
+    /// by at least `margin` weight points or the runtime declines to act
+    /// (the run ends with `NoRoute`). `0` disables. Ignored while `exploration`
+    /// is active (stochastic selection resolves competition by sampling).
+    #[must_use]
+    pub const fn with_margin(mut self, margin: i16) -> Self {
+        self.margin = margin;
+        self
+    }
+
+    /// The active NoGo selection margin.
+    pub const fn margin(&self) -> i16 {
+        self.margin
     }
 
     pub fn insert_module<M>(&mut self, module: M) -> Result<(), RuntimeError>
@@ -163,6 +182,8 @@ impl<P> Runtime<P> {
             let selected = if self.exploration > 0.0 {
                 self.routing
                     .select_modulated(&at, &signal, self.exploration, &mut self.rng)?
+            } else if self.margin > 0 {
+                self.routing.select_with_margin(&at, &signal, self.margin)?
             } else {
                 self.routing.select(&at, &signal)?
             };

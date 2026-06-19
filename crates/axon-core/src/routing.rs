@@ -124,6 +124,56 @@ impl<P> RoutingTable<P> {
         Ok(candidates.last().copied())
     }
 
+    /// Argmax selection under a NoGo discipline: the winner must beat the
+    /// runner-up by at least `margin` (effective weight) or selection returns
+    /// `None` — "decide when *not* to act". A sole admitted candidate always
+    /// wins. Unlike [`select`](Self::select) this never raises `AmbiguousRoute`:
+    /// a tie is simply not a clear-enough winner, so it is suppressed.
+    ///
+    /// This is the basal-ganglia default-inhibition rule — without a margin a
+    /// marginally-best route fires even when no option is clearly right.
+    pub fn select_with_margin<'a>(
+        &'a self,
+        from: &EndpointId,
+        signal: &Signal<P>,
+        margin: i16,
+    ) -> Result<Option<&'a Route<P>>, RoutingError> {
+        let mut best: Option<&Route<P>> = None;
+        let mut runner_up: Option<Weight> = None;
+        for route in self
+            .routes
+            .iter()
+            .filter(|route| route.from() == from && route.admits(signal))
+        {
+            match best {
+                None => best = Some(route),
+                Some(current) if route.weight() > current.weight() => {
+                    runner_up = Some(current.weight());
+                    best = Some(route);
+                }
+                Some(_) => {
+                    let better_runner_up = match runner_up {
+                        Some(weight) => route.weight() > weight,
+                        None => true,
+                    };
+                    if better_runner_up {
+                        runner_up = Some(route.weight());
+                    }
+                }
+            }
+        }
+        let Some(winner) = best else {
+            return Ok(None);
+        };
+        match runner_up {
+            Some(second) => {
+                let gap = winner.weight().get().saturating_sub(second.get());
+                Ok((gap >= margin).then_some(winner))
+            }
+            None => Ok(Some(winner)),
+        }
+    }
+
     /// Apply graded, eligibility-weighted credit to every edge traversed in
     /// `steps`, mutating learned weights and emitting one
     /// [`RunEvent::Reinforced`] per changed edge.

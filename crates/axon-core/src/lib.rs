@@ -18,7 +18,7 @@ mod signal;
 mod stop;
 mod working_memory;
 
-pub use breaker::CircuitBreaker;
+pub use breaker::{BreakerState, CircuitBreaker};
 pub use edge::EdgeId;
 pub use error::RuntimeError;
 pub use event::RunEvent;

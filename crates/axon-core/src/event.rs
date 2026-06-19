@@ -24,4 +24,7 @@ pub enum RunEvent {
     Reinforced { edge: EdgeId, delta: i16 },
     /// The run was cancelled at `at` by a [`StopToken`](crate::StopToken).
     Halted { at: EndpointId },
+    /// Module `at`'s breaker degraded (failures accruing or open) — the home for
+    /// supervisors to surface hub-robustness loss.
+    Degraded { at: ModuleId },
 }

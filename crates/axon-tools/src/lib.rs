@@ -1,9 +1,11 @@
+mod async_module;
 mod command;
 mod error;
 mod fs;
 mod git;
 mod module;
 
+pub use async_module::{AsyncTool, AsyncToolModule};
 pub use command::{CommandOutput, CommandSpec, ShellCommand};
 pub use error::ToolError;
 pub use fs::{FsList, FsRead};

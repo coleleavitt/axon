@@ -10,6 +10,7 @@ use crate::id::{EndpointId, InputId, ModuleId};
 use crate::limit::StepLimit;
 use crate::module::{Module, ModuleOutput};
 use crate::plasticity::{Plasticity, Reinforcement};
+use crate::profile::RoutingProfile;
 use crate::report::{RunReport, RunStatus, TraceStep};
 use crate::rng::{DEFAULT_SEED, Rng};
 use crate::route::{Cost, Route, Weight};
@@ -346,6 +347,17 @@ impl<P> Runtime<P> {
     ) {
         self.routing
             .reinforce(plasticity, steps, reinforcement, observer);
+    }
+
+    /// Apply a [`RoutingProfile`] so the same graph routes differently under the
+    /// active mode — see [`RoutingTable::apply_profile`].
+    pub fn apply_profile(&mut self, profile: &RoutingProfile) {
+        self.routing.apply_profile(profile);
+    }
+
+    /// Clear any active routing profile — see [`RoutingTable::clear_profile`].
+    pub fn clear_profile(&mut self) {
+        self.routing.clear_profile();
     }
 
     /// Decay all learned routing weights toward their priors — see

@@ -7,6 +7,7 @@ use crate::event::RunEvent;
 use crate::graph::ModuleGraph;
 use crate::id::EndpointId;
 use crate::plasticity::{Credit, Plasticity, Reinforcement};
+use crate::profile::RoutingProfile;
 use crate::report::TraceStep;
 use crate::rng::Rng;
 use crate::route::{Route, Sign, Weight};
@@ -268,6 +269,22 @@ impl<P> RoutingTable<P> {
                     delta,
                 });
             }
+        }
+    }
+
+    /// Apply a [`RoutingProfile`]'s per-edge biases, replacing any prior profile
+    /// (edges not in the profile are reset to zero bias). Swapping profiles
+    /// reconfigures which routes win on the same graph.
+    pub fn apply_profile(&mut self, profile: &RoutingProfile) {
+        for route in &mut self.routes {
+            route.set_bias(profile.get(&route.edge()));
+        }
+    }
+
+    /// Clear any active routing profile, returning every edge to `base + learned`.
+    pub fn clear_profile(&mut self) {
+        for route in &mut self.routes {
+            route.set_bias(0);
         }
     }
 

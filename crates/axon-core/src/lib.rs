@@ -8,6 +8,7 @@ mod id;
 mod limit;
 mod module;
 mod plasticity;
+mod profile;
 mod report;
 mod rng;
 mod route;
@@ -28,6 +29,7 @@ pub use id::{EndpointId, IdError, InputId, InputIdError, ModuleId, ModuleIdError
 pub use limit::{StepLimit, StepLimitError};
 pub use module::{FnModule, Module, ModuleError, ModuleOutput};
 pub use plasticity::{Credit, Plasticity, ProportionalPlasticity, Reinforcement};
+pub use profile::RoutingProfile;
 pub use report::{RunReport, RunStatus, TraceStep};
 pub use rng::{DEFAULT_SEED, Rng};
 pub use route::{Cost, Route, Sign, Weight};

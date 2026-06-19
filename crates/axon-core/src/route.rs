@@ -77,6 +77,10 @@ pub struct Route<P> {
     /// weight is `base + learned`. Kept separate so decay can pull learning back
     /// toward the prior without erasing it, and so only `learned` is persisted.
     learned: i16,
+    /// A swappable, mode-dependent weight bias applied by a routing profile; the
+    /// effective weight is `base + learned + bias`. Lets one fixed graph express
+    /// many transient routing configurations without rewiring (metastability).
+    bias: i16,
     cost: Cost,
     sign: Sign,
     gate: Box<dyn Gate<P> + Send + Sync + 'static>,
@@ -92,6 +96,7 @@ impl<P> Route<P> {
             to,
             base: weight,
             learned: 0,
+            bias: 0,
             cost: Cost::new(0),
             sign: Sign::Excitatory,
             gate: Box::new(gate),
@@ -126,9 +131,21 @@ impl<P> Route<P> {
     }
 
     /// The effective weight used for selection: the static `base` prior plus the
-    /// `learned` plastic component, saturating at the `i16` bounds.
+    /// `learned` plastic component plus the profile `bias`, saturating at the
+    /// `i16` bounds.
     pub const fn weight(&self) -> Weight {
-        Weight(self.base.0.saturating_add(self.learned))
+        Weight(
+            self.base
+                .0
+                .saturating_add(self.learned)
+                .saturating_add(self.bias),
+        )
+    }
+
+    /// Set the swappable, mode-dependent profile bias — see
+    /// [`RoutingProfile`](crate::RoutingProfile).
+    pub fn set_bias(&mut self, bias: i16) {
+        self.bias = bias;
     }
 
     /// The static prior, before any reinforcement.
@@ -195,6 +212,7 @@ impl<P> fmt::Debug for Route<P> {
             .field("weight", &self.weight())
             .field("base", &self.base)
             .field("learned", &self.learned)
+            .field("bias", &self.bias)
             .field("cost", &self.cost)
             .field("sign", &self.sign)
             .field("gate", &self.gate)

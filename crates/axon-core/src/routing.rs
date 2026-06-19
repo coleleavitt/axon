@@ -9,7 +9,7 @@ use crate::id::EndpointId;
 use crate::plasticity::{Credit, Plasticity, Reinforcement};
 use crate::report::TraceStep;
 use crate::rng::Rng;
-use crate::route::{Route, Weight};
+use crate::route::{Route, Sign, Weight};
 use crate::signal::Signal;
 
 #[derive(Debug)]
@@ -55,12 +55,19 @@ impl<P> RoutingTable<P> {
     ) -> Result<Option<&'a Route<P>>, RoutingError> {
         let mut selected = None;
         let mut ambiguous = false;
+        // Total inhibition admitted from this source; it suppresses the
+        // excitatory competition rather than competing for selection itself.
+        let mut inhibition: i32 = 0;
 
         for route in self
             .routes
             .iter()
             .filter(|route| route.from() == from && route.admits(signal))
         {
+            if route.sign() == Sign::Inhibitory {
+                inhibition = inhibition.saturating_add(i32::from(route.weight().get()));
+                continue;
+            }
             match selected {
                 None => {
                     selected = Some(route);
@@ -74,6 +81,16 @@ impl<P> RoutingTable<P> {
                     Ordering::Equal => ambiguous = true,
                     Ordering::Less => {}
                 },
+            }
+        }
+
+        // Inhibitory veto: when inhibition is present and overwhelms the best
+        // excitatory option, no route fires (default tonic inhibition).
+        if inhibition > 0 {
+            if let Some(route) = selected {
+                if i32::from(route.weight().get()) <= inhibition {
+                    return Ok(None);
+                }
             }
         }
 
@@ -112,7 +129,7 @@ impl<P> RoutingTable<P> {
         let candidates: Vec<&Route<P>> = self
             .routes
             .iter()
-            .filter(|route| route.from() == from && route.admits(signal))
+            .filter(|route| route.from() == from && route.is_excitatory() && route.admits(signal))
             .collect();
         let Some(max) = candidates.iter().map(|route| route.weight().get()).max() else {
             return Ok(None);
@@ -154,7 +171,7 @@ impl<P> RoutingTable<P> {
         for route in self
             .routes
             .iter()
-            .filter(|route| route.from() == from && route.admits(signal))
+            .filter(|route| route.from() == from && route.is_excitatory() && route.admits(signal))
         {
             match best {
                 None => best = Some(route),
@@ -201,7 +218,7 @@ impl<P> RoutingTable<P> {
         let mut admitted: Vec<&Route<P>> = self
             .routes
             .iter()
-            .filter(|route| route.from() == from && route.admits(signal))
+            .filter(|route| route.from() == from && route.is_excitatory() && route.admits(signal))
             .collect();
         admitted.sort_by(|left, right| {
             right

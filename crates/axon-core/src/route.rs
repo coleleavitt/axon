@@ -42,6 +42,18 @@ impl Cost {
     }
 }
 
+/// The sign of a routing edge. Excitatory edges compete to be selected;
+/// admitted Inhibitory edges instead *suppress* the excitatory competition from
+/// the same source (basal-ganglia direct/indirect pathway) and are never
+/// themselves chosen as a destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Sign {
+    #[default]
+    Excitatory,
+    Inhibitory,
+}
+
 /// Round a real-valued weight adjustment to the nearest `i16`, saturating at
 /// the bounds. Shared by plastic decay and the [`Plasticity`](crate::Plasticity)
 /// policy so both clamp learning identically.
@@ -66,6 +78,7 @@ pub struct Route<P> {
     /// toward the prior without erasing it, and so only `learned` is persisted.
     learned: i16,
     cost: Cost,
+    sign: Sign,
     gate: Box<dyn Gate<P> + Send + Sync + 'static>,
 }
 
@@ -80,6 +93,7 @@ impl<P> Route<P> {
             base: weight,
             learned: 0,
             cost: Cost::new(0),
+            sign: Sign::Excitatory,
             gate: Box::new(gate),
         }
     }
@@ -88,6 +102,14 @@ impl<P> Route<P> {
     #[must_use]
     pub fn with_cost(mut self, cost: Cost) -> Self {
         self.cost = cost;
+        self
+    }
+
+    /// Set this route's [`Sign`]. An inhibitory route suppresses the excitatory
+    /// competition from the same source instead of being selected itself.
+    #[must_use]
+    pub fn with_sign(mut self, sign: Sign) -> Self {
+        self.sign = sign;
         self
     }
 
@@ -122,6 +144,16 @@ impl<P> Route<P> {
     /// This route's traversal cost.
     pub const fn cost(&self) -> Cost {
         self.cost
+    }
+
+    /// This route's sign.
+    pub const fn sign(&self) -> Sign {
+        self.sign
+    }
+
+    /// Whether this is an excitatory (selectable) edge.
+    pub const fn is_excitatory(&self) -> bool {
+        matches!(self.sign, Sign::Excitatory)
     }
 
     /// This route's `(from, to)` identity.
@@ -164,6 +196,7 @@ impl<P> fmt::Debug for Route<P> {
             .field("base", &self.base)
             .field("learned", &self.learned)
             .field("cost", &self.cost)
+            .field("sign", &self.sign)
             .field("gate", &self.gate)
             .finish()
     }

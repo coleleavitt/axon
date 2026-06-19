@@ -30,7 +30,7 @@ pub use module::{FnModule, Module, ModuleError, ModuleOutput};
 pub use plasticity::{Credit, Plasticity, ProportionalPlasticity, Reinforcement};
 pub use report::{RunReport, RunStatus, TraceStep};
 pub use rng::{DEFAULT_SEED, Rng};
-pub use route::{Cost, Route, Weight};
+pub use route::{Cost, Route, Sign, Weight};
 pub use routing::{RoutingError, RoutingTable};
 pub use runtime::{AgentLoop, Runtime};
 pub use runtime_async::{AsyncModule, AsyncRuntime, BoxFuture};

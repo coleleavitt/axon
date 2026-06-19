@@ -193,6 +193,15 @@ impl<P> Runtime<P> {
         Ok(())
     }
 
+    /// Add a fully-built [`Route`] (e.g. carrying a [`Sign`](crate::Sign) or
+    /// [`Cost`]) after validating its endpoints — the general escape hatch when
+    /// the convenience constructors do not cover the route's configuration.
+    pub fn add_built_route(&mut self, route: Route<P>) -> Result<(), RuntimeError> {
+        self.validate_endpoints(route.from(), route.to())?;
+        self.routing.push(route);
+        Ok(())
+    }
+
     pub fn add_input_route<G>(
         &mut self,
         from: InputId,

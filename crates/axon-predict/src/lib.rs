@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Full confidence, in permille (so `Prediction` stays `Eq` — no raw `f32`).
@@ -318,6 +319,56 @@ impl PredictiveHierarchy {
             }
         }
         chain
+    }
+}
+
+/// An active-inference action selector: it scores candidate actions by expected
+/// free energy rather than only past reward.
+///
+/// Each action's expected value combines a **pragmatic** term (exploit what the
+/// forward model is confident will go as expected) and an **epistemic** term
+/// (information gain — explore where the model is uncertain, to make it right).
+/// Tuning the two weights slides from curiosity to goal-directed exploitation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActiveInference {
+    epistemic: f32,
+    pragmatic: f32,
+}
+
+impl ActiveInference {
+    pub const fn new(epistemic: f32, pragmatic: f32) -> Self {
+        Self {
+            epistemic,
+            pragmatic,
+        }
+    }
+
+    /// Curiosity-dominant: prefer actions the model is unsure about (to learn).
+    pub const fn curious() -> Self {
+        Self::new(1.0, 0.3)
+    }
+
+    /// Goal-directed: prefer actions the model is confident will succeed.
+    pub const fn goal_directed() -> Self {
+        Self::new(0.2, 1.0)
+    }
+
+    /// Expected value (negative expected free energy) of `action` under the
+    /// forward model: pragmatic value from confidence plus epistemic value from
+    /// uncertainty (`1 - confidence`).
+    pub fn expected_value(&self, predictor: &dyn Predictor, action: &str) -> f32 {
+        let confidence = predictor.predict(action).confidence();
+        self.pragmatic * confidence + self.epistemic * (1.0 - confidence)
+    }
+
+    /// Rank `actions` by expected value, best first.
+    pub fn rank<'a>(&self, predictor: &dyn Predictor, actions: &[&'a str]) -> Vec<(&'a str, f32)> {
+        let mut scored: Vec<(&'a str, f32)> = actions
+            .iter()
+            .map(|action| (*action, self.expected_value(predictor, action)))
+            .collect();
+        scored.sort_by(|left, right| right.1.partial_cmp(&left.1).unwrap_or(Ordering::Equal));
+        scored
     }
 }
 

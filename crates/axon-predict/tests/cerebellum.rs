@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use axon_predict::{
+    ActiveInference,
     AssociativePredictor,
     Correction,
     Expected,
@@ -177,6 +178,24 @@ fn predictive_hierarchy_explains_via_recursive_error_flow() -> Result<(), Box<dy
     // And: when the top-level prediction holds immediately, nothing escalates.
     let explained = hierarchy.explain("build", &Outcome::new("it compiles fine"));
     assert!(explained.is_empty());
+    Ok(())
+}
+
+#[test]
+fn active_inference_trades_curiosity_against_exploitation() -> Result<(), Box<dyn Error>> {
+    // Given: a forward model confident about "known" and unsure about "novel".
+    let mut model = AssociativePredictor::new();
+    model.observe(&model.predict("known"), &Outcome::new("ok"));
+    model.observe(&model.predict("known"), &Outcome::new("ok"));
+    let actions = ["known", "novel"];
+
+    // When/Then: curiosity ranks the uncertain action first (to learn)...
+    let curious = ActiveInference::curious().rank(&model, &actions);
+    assert_eq!(curious[0].0, "novel");
+
+    // ...while goal-directed inference ranks the confident action first (exploit).
+    let exploit = ActiveInference::goal_directed().rank(&model, &actions);
+    assert_eq!(exploit[0].0, "known");
     Ok(())
 }
 

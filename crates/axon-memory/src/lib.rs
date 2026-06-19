@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
@@ -83,6 +83,7 @@ pub struct EpisodicStore {
     episodes: Vec<Episode>,
     next_id: u64,
     capacity: Option<usize>,
+    dedup_threshold: f32,
 }
 
 impl EpisodicStore {
@@ -91,7 +92,19 @@ impl EpisodicStore {
             episodes: Vec::new(),
             next_id: 1,
             capacity: None,
+            // Collapse memories whose token sets are >= 80% similar.
+            dedup_threshold: 0.8,
         }
+    }
+
+    /// Set the near-duplicate orthogonalization threshold in `[0.0, 1.0]`: on
+    /// encode, a new memory whose token (Jaccard) similarity to an existing one
+    /// meets this threshold is treated as the same memory (pattern separation).
+    /// `1.0` requires exact token-set equality.
+    #[must_use]
+    pub const fn with_dedup_threshold(mut self, threshold: f32) -> Self {
+        self.dedup_threshold = threshold;
+        self
     }
 
     /// Bound the store to at most `capacity` episodes. Once full, each encode
@@ -186,12 +199,13 @@ impl Default for EpisodicStore {
 impl MemoryStore for EpisodicStore {
     fn encode(&mut self, mut episode: Episode) -> MemoryId {
         // Pattern separation (dentate gyrus): never store a memory that is not
-        // separable from one already held. A re-encoded duplicate returns the
-        // existing id instead of accumulating redundant episodes.
+        // separable from one already held. A near-duplicate (token similarity at
+        // or above the threshold) returns the existing id instead of
+        // accumulating redundant, overlapping traces.
         if let Some(existing) = self
             .episodes
             .iter()
-            .find(|stored| same_memory(stored.text(), episode.text()))
+            .find(|stored| jaccard(stored.text(), episode.text()) >= self.dedup_threshold)
         {
             return existing.id();
         }
@@ -223,10 +237,16 @@ impl MemoryStore for EpisodicStore {
     }
 }
 
-/// Two memories are the same when their text is equal after trimming and
-/// case-folding — the orthogonalization rule applied on write.
-fn same_memory(left: &str, right: &str) -> bool {
-    left.trim().eq_ignore_ascii_case(right.trim())
+/// Token (Jaccard) similarity in `[0.0, 1.0]` between two texts — the
+/// orthogonalization measure applied on write. Two empty texts are identical.
+fn jaccard(left: &str, right: &str) -> f32 {
+    let left: BTreeSet<String> = tokenize(left).into_iter().collect();
+    let right: BTreeSet<String> = tokenize(right).into_iter().collect();
+    let union = left.union(&right).count();
+    if union == 0 {
+        return 1.0;
+    }
+    left.intersection(&right).count() as f32 / union as f32
 }
 
 /// Split text into lowercased alphanumeric tokens for content-addressable

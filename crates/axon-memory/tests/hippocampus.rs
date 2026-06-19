@@ -70,6 +70,25 @@ fn encode_separates_duplicate_memories() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn encode_collapses_near_duplicate_memories() -> Result<(), Box<dyn Error>> {
+    // Given: a stored memory.
+    let mut store = EpisodicStore::new();
+    let first = store.encode(Episode::new("fix the auth bug"));
+
+    // When: a reworded near-duplicate (token similarity 0.8) is encoded.
+    let again = store.encode(Episode::new("fix the auth bug now"));
+
+    // Then: it is orthogonalized to the existing memory, not stored separately.
+    assert_eq!(first, again);
+    assert_eq!(store.episodes().len(), 1);
+
+    // And: a genuinely different memory is still separated.
+    store.encode(Episode::new("brew some coffee"));
+    assert_eq!(store.episodes().len(), 2);
+    Ok(())
+}
+
+#[test]
 fn recall_breaks_ties_toward_recent_memories() -> Result<(), Box<dyn Error>> {
     // Given: two equally-relevant memories encoded oldest-first.
     let mut store = EpisodicStore::new();

@@ -29,6 +29,9 @@ pub struct Broadcast {
     kind: BroadcastKind,
     text: String,
     salience: Priority,
+    /// How many distinct modules have integrated (consumed) this broadcast — the
+    /// ignition reach metric (see [`Workspace::acknowledge`]).
+    reach: u32,
 }
 
 impl Broadcast {
@@ -49,6 +52,7 @@ impl Broadcast {
             kind,
             text: text.into(),
             salience: kind.default_salience(),
+            reach: 0,
         }
     }
 
@@ -71,6 +75,11 @@ impl Broadcast {
 
     pub const fn salience(&self) -> Priority {
         self.salience
+    }
+
+    /// How many modules have integrated this broadcast — its ignition reach.
+    pub const fn reach(&self) -> u32 {
+        self.reach
     }
 }
 
@@ -153,6 +162,32 @@ impl Workspace {
     /// The most salient item currently held (most recent among ties), or `None`.
     pub fn most_salient(&self) -> Option<&Broadcast> {
         self.broadcasts.iter().max_by_key(|item| item.salience)
+    }
+
+    /// Record that a module integrated (consumed) the first broadcast matching
+    /// `predicate`, bumping its reach. Returns whether a match was found.
+    ///
+    /// Reach is the practical, non-mystical reading of IIT/Φ for an agent: did a
+    /// broadcast actually reach and change behavior in downstream modules, or did
+    /// it ignite and fizzle? It is a counter to debug *why an agent ignored a
+    /// warning* — not a control law.
+    pub fn acknowledge(&mut self, predicate: impl Fn(&Broadcast) -> bool) -> bool {
+        match self.broadcasts.iter_mut().find(|item| predicate(item)) {
+            Some(item) => {
+                item.reach = item.reach.saturating_add(1);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// How many held broadcasts reached at least `threshold` consumers — the
+    /// count that genuinely *ignited* (vs were merely deposited).
+    pub fn ignited(&self, threshold: u32) -> usize {
+        self.broadcasts
+            .iter()
+            .filter(|item| item.reach >= threshold)
+            .count()
     }
 
     /// Index of the weakest-salience item, oldest first among ties — the next to

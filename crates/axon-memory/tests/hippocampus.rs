@@ -4,10 +4,14 @@ use axon_memory::{
     Consolidator,
     Episode,
     EpisodicStore,
+    Fact,
     HashEmbedder,
     MemoryStore,
+    ProceduralStore,
+    Procedure,
     RecallQuery,
     SchemaStore,
+    SemanticStore,
 };
 
 #[test]
@@ -120,6 +124,51 @@ fn schema_store_is_readable_after_consolidation() -> Result<(), Box<dyn Error>> 
     assert_eq!(tool.len(), 1);
     assert_eq!(tool[0].support(), 2);
     assert!(schemas.recall("predict").is_empty());
+    Ok(())
+}
+
+#[test]
+fn semantic_store_recalls_facts_by_subject() -> Result<(), Box<dyn Error>> {
+    // Given: facts about two subjects, with one exact duplicate.
+    let mut store = SemanticStore::new();
+    store.assert(Fact::new("axon", "is", "a routing core"));
+    store.assert(Fact::new("axon", "uses", "edition 2024"));
+    store.assert(Fact::new("rust", "has", "ownership"));
+    store.assert(Fact::new("axon", "is", "a routing core"));
+
+    // Then: facts are recalled by subject and the duplicate was ignored.
+    assert_eq!(store.about("axon").len(), 2);
+    assert_eq!(store.about("rust").len(), 1);
+    assert_eq!(store.facts().len(), 3);
+    Ok(())
+}
+
+#[test]
+fn procedural_store_recalls_a_known_how_to_by_goal() -> Result<(), Box<dyn Error>> {
+    // Given: two learned procedures.
+    let mut store = ProceduralStore::new();
+    store.learn(Procedure::new(
+        "run the tests",
+        ["cargo build", "cargo test"],
+    ));
+    store.learn(Procedure::new("format the code", ["cargo fmt"]));
+
+    // Then: an exact goal returns its steps...
+    let Some(tests) = store.get("run the tests") else {
+        panic!("expected a stored procedure");
+    };
+    assert_eq!(tests.steps().len(), 2);
+
+    // ...a partial goal cue recalls the best match...
+    let recalled = store.recall("run tests please");
+    assert_eq!(recalled[0].goal(), "run the tests");
+
+    // ...and re-learning the same goal replaces the procedure.
+    store.learn(Procedure::new("run the tests", ["cargo nextest run"]));
+    let Some(updated) = store.get("run the tests") else {
+        panic!("expected the replaced procedure");
+    };
+    assert_eq!(updated.steps().len(), 1);
     Ok(())
 }
 

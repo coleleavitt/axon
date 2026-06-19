@@ -595,6 +595,154 @@ impl<'a> SimilarHit<'a> {
     }
 }
 
+/// A semantic fact — typed, timeless knowledge (subject–predicate–object),
+/// distinct from a dated [`Episode`]. The "what is true" store in the CoALA
+/// episodic/semantic/procedural split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Fact {
+    subject: String,
+    predicate: String,
+    object: String,
+}
+
+impl Fact {
+    pub fn new(
+        subject: impl Into<String>,
+        predicate: impl Into<String>,
+        object: impl Into<String>,
+    ) -> Self {
+        Self {
+            subject: subject.into(),
+            predicate: predicate.into(),
+            object: object.into(),
+        }
+    }
+
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    pub fn predicate(&self) -> &str {
+        &self.predicate
+    }
+
+    pub fn object(&self) -> &str {
+        &self.object
+    }
+}
+
+/// The semantic store: timeless facts recalled by subject.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SemanticStore {
+    facts: Vec<Fact>,
+}
+
+impl SemanticStore {
+    pub const fn new() -> Self {
+        Self { facts: Vec::new() }
+    }
+
+    /// Assert a fact, ignoring an exact duplicate.
+    pub fn assert(&mut self, fact: Fact) {
+        if !self.facts.contains(&fact) {
+            self.facts.push(fact);
+        }
+    }
+
+    pub fn facts(&self) -> &[Fact] {
+        &self.facts
+    }
+
+    /// Recall every fact about `subject` (case-insensitive).
+    pub fn about(&self, subject: &str) -> Vec<&Fact> {
+        self.facts
+            .iter()
+            .filter(|fact| fact.subject.eq_ignore_ascii_case(subject))
+            .collect()
+    }
+}
+
+/// A reusable procedure — an ordered list of action descriptions keyed by the
+/// goal pattern it solves. The "how to do it" store, so the agent need not
+/// re-plan a recurring goal from scratch (CoALA procedural memory).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Procedure {
+    goal: String,
+    steps: Vec<String>,
+}
+
+impl Procedure {
+    pub fn new<I, S>(goal: impl Into<String>, steps: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            goal: goal.into(),
+            steps: steps.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn goal(&self) -> &str {
+        &self.goal
+    }
+
+    pub fn steps(&self) -> &[String] {
+        &self.steps
+    }
+}
+
+/// The procedural store: named procedures keyed by goal.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ProceduralStore {
+    procedures: Vec<Procedure>,
+}
+
+impl ProceduralStore {
+    pub const fn new() -> Self {
+        Self {
+            procedures: Vec::new(),
+        }
+    }
+
+    /// Store a procedure, replacing any existing one for the same exact goal.
+    pub fn learn(&mut self, procedure: Procedure) {
+        if let Some(slot) = self
+            .procedures
+            .iter_mut()
+            .find(|existing| existing.goal == procedure.goal)
+        {
+            *slot = procedure;
+        } else {
+            self.procedures.push(procedure);
+        }
+    }
+
+    /// The procedure stored for this exact goal, if any.
+    pub fn get(&self, goal: &str) -> Option<&Procedure> {
+        self.procedures
+            .iter()
+            .find(|procedure| procedure.goal == goal)
+    }
+
+    /// Procedures whose goal shares words with `cue`, best overlap first — recall
+    /// a known how-to from a partial goal description.
+    pub fn recall(&self, cue: &str) -> Vec<&Procedure> {
+        let mut hits: Vec<(&Procedure, u32)> = self
+            .procedures
+            .iter()
+            .map(|procedure| (procedure, lexical_overlap(cue, &procedure.goal)))
+            .filter(|(_, overlap)| *overlap > 0)
+            .collect();
+        hits.sort_by_key(|(_, overlap)| std::cmp::Reverse(*overlap));
+        hits.into_iter().map(|(procedure, _)| procedure).collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryError;
 

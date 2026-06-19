@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -12,12 +13,14 @@ impl MemoryId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+// `Episode` carries an `f32` importance, so it is `PartialEq` but not `Eq`.
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Episode {
     id: MemoryId,
     text: String,
     tags: Vec<String>,
+    importance: f32,
 }
 
 impl Episode {
@@ -26,6 +29,7 @@ impl Episode {
             id: MemoryId::default(),
             text: text.into(),
             tags: Vec::new(),
+            importance: 1.0,
         }
     }
 
@@ -38,8 +42,21 @@ impl Episode {
         self
     }
 
+    /// Set the salience/importance weight (default `1.0`). Typically derived
+    /// from `Modulators::attention()` at encode time; recall ranks a more
+    /// important memory above an equally-relevant but mundane one.
+    #[must_use]
+    pub fn with_importance(mut self, importance: f32) -> Self {
+        self.importance = importance;
+        self
+    }
+
     pub const fn id(&self) -> MemoryId {
         self.id
+    }
+
+    pub const fn importance(&self) -> f32 {
+        self.importance
     }
 
     pub fn text(&self) -> &str {
@@ -106,17 +123,19 @@ impl MemoryStore for EpisodicStore {
     }
 
     fn recall(&self, query: &RecallQuery) -> Vec<RecallResult<'_>> {
+        let newest = self.next_id.saturating_sub(1);
         let mut results: Vec<_> = self
             .episodes
             .iter()
-            .filter_map(|episode| RecallResult::from_episode(episode, query))
+            .filter_map(|episode| RecallResult::from_episode(episode, query, newest))
             .collect();
-        // Rank by relevance, breaking ties toward more recent memories (higher
-        // id) so recency biases retrieval the way episodic recall does.
+        // Rank by the combined relevance × recency × importance score, breaking
+        // ties toward more recent memories (higher id).
         results.sort_by(|left, right| {
             right
-                .score
-                .cmp(&left.score)
+                .score()
+                .partial_cmp(&left.score())
+                .unwrap_or(Ordering::Equal)
                 .then_with(|| right.episode.id.cmp(&left.episode.id))
         });
         results
@@ -185,11 +204,13 @@ where
 #[derive(Debug, Clone, Copy)]
 pub struct RecallResult<'a> {
     episode: &'a Episode,
-    score: u32,
+    relevance: u32,
+    recency: f32,
+    importance: f32,
 }
 
 impl<'a> RecallResult<'a> {
-    fn from_episode(episode: &'a Episode, query: &RecallQuery) -> Option<Self> {
+    fn from_episode(episode: &'a Episode, query: &RecallQuery, newest: u64) -> Option<Self> {
         let text_score = lexical_overlap(&query.text, &episode.text);
         let tag_score = query
             .tags
@@ -198,17 +219,50 @@ impl<'a> RecallResult<'a> {
             .count()
             .try_into()
             .unwrap_or(u32::MAX);
-        let score = text_score.saturating_add(tag_score);
-        (score > 0).then_some(Self { episode, score })
+        let relevance = text_score.saturating_add(tag_score);
+        if relevance == 0 {
+            return None;
+        }
+        Some(Self {
+            episode,
+            relevance,
+            recency: recency_weight(episode.id, newest),
+            importance: episode.importance,
+        })
     }
 
     pub const fn episode(&self) -> &Episode {
         self.episode
     }
 
-    pub const fn score(&self) -> u32 {
-        self.score
+    /// Content-match strength: lexical + tag overlap with the cue.
+    pub const fn relevance(&self) -> u32 {
+        self.relevance
     }
+
+    /// Recency weight in `(0.0, 1.0]`; the newest memory weighs `1.0`.
+    pub const fn recency(&self) -> f32 {
+        self.recency
+    }
+
+    /// The episode's importance/salience weight.
+    pub const fn importance(&self) -> f32 {
+        self.importance
+    }
+
+    /// Combined retrieval score `relevance × recency × importance`: a memory must
+    /// be on-topic, recent, *and* important to rank highly. This is the
+    /// Generative-Agents weighting (relevance × recency-decay × importance).
+    pub fn score(&self) -> f32 {
+        self.relevance as f32 * self.recency * self.importance
+    }
+}
+
+/// Recency weighting: the newest memory (`id == newest`) weighs `1.0` and older
+/// ones decay as `1 / (1 + age)`, so recall favors fresh experience.
+fn recency_weight(id: MemoryId, newest: u64) -> f32 {
+    let age = newest.saturating_sub(id.get());
+    1.0 / (1.0 + age as f32)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

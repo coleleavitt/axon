@@ -262,9 +262,13 @@ impl Module<AgentSignal> for Executive {
                 .map_or(0.0, |mismatch| mismatch.magnitude());
             errors.borrow_mut().record(magnitude);
         }
-        self.memory
-            .borrow_mut()
-            .encode(Episode::new(format!("{action} -> {observed}")).with_tags(["observation"]));
+        // Importance is set from the attention neuromodulator, so a more attentive
+        // executive lays down more salient (higher-ranking) memories.
+        self.memory.borrow_mut().encode(
+            Episode::new(format!("{action} -> {observed}"))
+                .with_tags(["observation"])
+                .with_importance(self.modulators.attention().get()),
+        );
         self.workspace
             .borrow_mut()
             .broadcast(Broadcast::observation(format!(

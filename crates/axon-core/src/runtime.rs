@@ -5,6 +5,7 @@ use crate::edge::EdgeId;
 use crate::error::RuntimeError;
 use crate::event::RunEvent;
 use crate::gate::Gate;
+use crate::graph::ModuleGraph;
 use crate::id::{EndpointId, InputId, ModuleId};
 use crate::limit::StepLimit;
 use crate::module::{Module, ModuleOutput};
@@ -256,6 +257,12 @@ impl<P> Runtime<P> {
     /// [`RoutingTable::restore_learned`].
     pub fn restore_learned(&mut self, snapshot: &[(EdgeId, i16)]) {
         self.routing.restore_learned(snapshot);
+    }
+
+    /// The read-only [`ModuleGraph`] of the runtime's wiring — for degree, hub,
+    /// and reachability analysis of the registered routes.
+    pub fn graph(&self) -> ModuleGraph {
+        self.routing.graph()
     }
 
     pub fn module_count(&self) -> usize {

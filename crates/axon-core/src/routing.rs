@@ -4,6 +4,7 @@ use std::fmt;
 
 use crate::edge::EdgeId;
 use crate::event::RunEvent;
+use crate::graph::ModuleGraph;
 use crate::id::EndpointId;
 use crate::plasticity::{Credit, Plasticity, Reinforcement};
 use crate::report::TraceStep;
@@ -35,6 +36,16 @@ impl<P> RoutingTable<P> {
 
     pub fn routes(&self) -> impl Iterator<Item = &Route<P>> {
         self.routes.iter()
+    }
+
+    /// Build the read-only [`ModuleGraph`] of this table's wiring — the
+    /// connectome over which degree, reachability, and hubs are computed.
+    pub fn graph(&self) -> ModuleGraph {
+        let mut graph = ModuleGraph::new();
+        for route in &self.routes {
+            graph.insert(route.from().clone(), route.to().clone());
+        }
+        graph
     }
 
     pub fn select<'a>(

@@ -732,6 +732,14 @@ impl ProceduralStore {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.procedures.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.procedures.is_empty()
+    }
+
     /// Store a procedure, replacing any existing one for the same exact goal.
     pub fn learn(&mut self, procedure: Procedure) {
         if let Some(slot) = self

@@ -1,9 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
-use axon_memory::{Episode, EpisodicStore, MemoryStore};
+use axon_memory::{Episode, EpisodicStore, MemoryStore, Procedure};
 use axon_modulate::{Mode, Modulators};
-use axon_predict::{Correction, Outcome, Prediction, Verifier};
+use axon_predict::{Correction, Expected, Outcome, Prediction, Verifier};
 use axon_workspace::{Broadcast, Workspace};
 
 mod agent;
@@ -12,6 +12,7 @@ mod learning;
 mod plan_stack;
 mod planning;
 mod risk;
+mod skill;
 
 pub use agent::{
     AgentSignal,
@@ -30,6 +31,7 @@ pub use learning::{LearningLoop, OutcomeError};
 pub use plan_stack::PlanStack;
 pub use planning::{plan_prompt, propose_plan};
 pub use risk::{KeywordRisk, RiskAppraiser, RiskGate};
+pub use skill::SkillLibrary;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
@@ -86,6 +88,24 @@ impl Plan {
     pub fn then(mut self, next: Plan) -> Self {
         self.steps.extend(next.steps);
         self
+    }
+
+    /// Capture this plan as a reusable [`Procedure`] keyed by `goal` — promoting a
+    /// run that worked into procedural memory.
+    pub fn to_procedure(&self, goal: impl Into<String>) -> Procedure {
+        Procedure::new(goal, self.steps.iter().map(|step| step.action().to_owned()))
+    }
+
+    /// Rehydrate a stored [`Procedure`] into a runnable plan. The stored skill is
+    /// the action sequence; predictions default to [`Expected::Anything`] and are
+    /// re-derived per run.
+    pub fn from_procedure(procedure: &Procedure) -> Self {
+        Self::new(procedure.steps().iter().map(|action| {
+            Step::new(
+                action.clone(),
+                Prediction::new(action.clone(), Expected::Anything),
+            )
+        }))
     }
 
     pub fn step(&self, index: usize) -> Option<&Step> {

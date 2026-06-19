@@ -194,6 +194,11 @@ where
 /// records the episode, broadcasts it to the bounded workspace, then releases
 /// the next action or halts. Memory and workspace are shared handles so callers
 /// can inspect what routing produced after [`Runtime::run`] returns.
+/// How many times the executive will re-try the *same* failing step before
+/// abandoning it, by default. Bounds perseveration without being so tight that a
+/// transiently-flaky step is given up on immediately.
+const DEFAULT_MAX_RETRIES: u32 = 2;
+
 #[derive(Debug)]
 pub struct Executive {
     id: ModuleId,
@@ -202,6 +207,9 @@ pub struct Executive {
     modulators: Modulators,
     workspace: Rc<RefCell<Workspace>>,
     errors: Option<Rc<RefCell<OutcomeError>>>,
+    max_retries: u32,
+    last_retry_step: Option<usize>,
+    retry_count: u32,
 }
 
 impl Executive {
@@ -219,6 +227,9 @@ impl Executive {
             modulators,
             workspace,
             errors: None,
+            max_retries: DEFAULT_MAX_RETRIES,
+            last_retry_step: None,
+            retry_count: 0,
         }
     }
 
@@ -229,6 +240,42 @@ impl Executive {
     pub fn with_error_meter(mut self, errors: Rc<RefCell<OutcomeError>>) -> Self {
         self.errors = Some(errors);
         self
+    }
+
+    /// Bound how many times the same failing step may be retried before it is
+    /// abandoned (the perseveration guard). Defaults to 2.
+    #[must_use]
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    fn reset_retries(&mut self) {
+        self.last_retry_step = None;
+        self.retry_count = 0;
+    }
+
+    /// Retry `step`, or abandon it once the retry budget is spent. Without this
+    /// bound an Exploratory executive re-emits the same failing step forever,
+    /// perseverating until the run hits the step limit. Returns the loop output.
+    fn retry_or_abandon(&mut self, step: usize, reason: String) -> ModuleOutput<AgentSignal> {
+        self.retry_count = if self.last_retry_step == Some(step) {
+            self.retry_count.saturating_add(1)
+        } else {
+            1
+        };
+        self.last_retry_step = Some(step);
+        if self.retry_count > self.max_retries {
+            self.reset_retries();
+            ModuleOutput::stop(AgentSignal::Halt {
+                reason: format!(
+                    "abandoned step {step} after {} retries: {reason}",
+                    self.max_retries
+                ),
+            })
+        } else {
+            ModuleOutput::emit(AgentSignal::Advance { next: step })
+        }
     }
 }
 
@@ -283,10 +330,14 @@ impl Module<AgentSignal> for Executive {
         }
 
         Ok(match decide(correction, self.modulators.mode()) {
-            Decision::Continue => ModuleOutput::emit(AgentSignal::Advance {
-                next: step.saturating_add(1),
-            }),
-            Decision::Retry { .. } => ModuleOutput::emit(AgentSignal::Advance { next: step }),
+            Decision::Continue => {
+                // A step that finally succeeded clears its retry history.
+                self.reset_retries();
+                ModuleOutput::emit(AgentSignal::Advance {
+                    next: step.saturating_add(1),
+                })
+            }
+            Decision::Retry { reason } => self.retry_or_abandon(step, reason),
             Decision::Escalate { reason } | Decision::AskUser { question: reason } => {
                 ModuleOutput::stop(AgentSignal::Halt { reason })
             }

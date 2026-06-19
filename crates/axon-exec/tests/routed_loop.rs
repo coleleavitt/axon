@@ -9,6 +9,10 @@ use axon_modulate::{Mode, Modulators};
 use axon_predict::{Expected, Prediction, Verifier};
 use axon_workspace::Workspace;
 
+fn failing_tool(action: &str) -> Result<String, ModuleError> {
+    Ok(format!("could not {action}"))
+}
+
 fn step(action: &'static str, expected: &str) -> Step {
     Step::new(
         action,
@@ -97,5 +101,44 @@ fn routed_executive_halts_the_core_loop_on_mismatch() -> Result<(), Box<dyn Erro
     assert_eq!(report.steps().len(), 3);
     assert_eq!(memory.borrow().episodes().len(), 1);
     assert!(halt_reason(report.into_status()).contains("prediction mismatch in read"));
+    Ok(())
+}
+
+#[test]
+fn exploratory_executive_abandons_a_perpetually_failing_step() -> Result<(), Box<dyn Error>> {
+    // Given: an Exploratory executive (which maps a mismatch to Retry) bounded to
+    // one retry, a tool that always contradicts the prediction, and a generous
+    // step budget — so only the perseveration guard, not the step limit, can stop
+    // the loop.
+    let plan = Plan::new([step("read", "did")]);
+    let memory = Rc::new(RefCell::new(EpisodicStore::new()));
+    let workspace = Rc::new(RefCell::new(Workspace::new(8)?));
+
+    let goal = InputId::new("goal")?;
+    let planner = ModuleId::new("planner")?;
+    let tool = ModuleId::new("tool")?;
+    let executive = ModuleId::new("executive")?;
+
+    let mut runtime = Runtime::default();
+    runtime.insert_module(Planner::new(planner.clone(), plan))?;
+    runtime.insert_module(RoutedTool::new(tool.clone(), failing_tool))?;
+    runtime.insert_module(
+        Executive::new(
+            executive.clone(),
+            Rc::clone(&memory),
+            Verifier,
+            Modulators::baseline().with_mode(Mode::Exploratory),
+            Rc::clone(&workspace),
+        )
+        .with_max_retries(1),
+    )?;
+    wire_loop(&mut runtime, &goal, &planner, &tool, &executive)?;
+
+    // When: the loop runs against a step that can never succeed.
+    let report = runtime.run(goal, Signal::new(AgentSignal::Goal))?;
+
+    // Then: it abandons the step after its retry budget instead of perseverating
+    // until the step limit — the run completes Ok with a clear reason.
+    assert!(halt_reason(report.into_status()).contains("abandoned step 0 after 1 retries"));
     Ok(())
 }

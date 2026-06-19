@@ -1,4 +1,5 @@
 mod breaker;
+mod compartment;
 mod edge;
 mod error;
 mod event;
@@ -21,6 +22,7 @@ mod stop;
 mod working_memory;
 
 pub use breaker::{BreakerState, CircuitBreaker};
+pub use compartment::CompartmentModule;
 pub use edge::EdgeId;
 pub use error::RuntimeError;
 pub use event::RunEvent;

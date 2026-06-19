@@ -22,7 +22,7 @@ pub use breaker::{BreakerState, CircuitBreaker};
 pub use edge::EdgeId;
 pub use error::RuntimeError;
 pub use event::RunEvent;
-pub use gate::{Allow, DropSignal, Gate, MinPriority};
+pub use gate::{Allow, Disinhibit, DropSignal, Gate, MinPriority, Release};
 pub use graph::ModuleGraph;
 pub use id::{EndpointId, IdError, InputId, InputIdError, ModuleId, ModuleIdError};
 pub use limit::{StepLimit, StepLimitError};

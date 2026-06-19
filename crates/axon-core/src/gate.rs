@@ -1,4 +1,6 @@
 use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::signal::{Priority, Signal};
 
@@ -42,5 +44,56 @@ impl MinPriority {
 impl<P> Gate<P> for MinPriority {
     fn admits(&self, signal: &Signal<P>) -> bool {
         signal.priority() >= self.minimum
+    }
+}
+
+/// A shared, cloneable switch that top-down state toggles to *release* a
+/// [`Disinhibit`] gate. All clones share one flag (like a neuromodulator
+/// broadcast).
+#[derive(Debug, Clone, Default)]
+pub struct Release {
+    released: Arc<AtomicBool>,
+}
+
+impl Release {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Open the disinhibitory gate (VIP fires, suppressing the inhibitor).
+    pub fn release(&self) {
+        self.released.store(true, Ordering::Relaxed);
+    }
+
+    /// Re-engage the inhibitor (stop releasing).
+    pub fn hold(&self) {
+        self.released.store(false, Ordering::Relaxed);
+    }
+
+    pub fn is_released(&self) -> bool {
+        self.released.load(Ordering::Relaxed)
+    }
+}
+
+/// A disinhibitory gate combinator (the VIP→SST/PV motif): it normally defers to
+/// `inhibitor`, but while its [`Release`] switch is active it admits regardless,
+/// *opening* an otherwise-closed route for top-down signals. This is distinct
+/// from a flat threshold — attention/top-down state releases the route rather
+/// than lowering a bar.
+#[derive(Debug, Clone)]
+pub struct Disinhibit<I> {
+    inhibitor: I,
+    release: Release,
+}
+
+impl<I> Disinhibit<I> {
+    pub const fn new(inhibitor: I, release: Release) -> Self {
+        Self { inhibitor, release }
+    }
+}
+
+impl<P, I: Gate<P>> Gate<P> for Disinhibit<I> {
+    fn admits(&self, signal: &Signal<P>) -> bool {
+        self.release.is_released() || self.inhibitor.admits(signal)
     }
 }

@@ -57,5 +57,9 @@ fn graph_reports_degree_hub_and_reachability() -> Result<(), Box<dyn Error>> {
     assert_eq!(reachable.len(), 3);
     assert!(reachable.contains(&ModuleId::new("tool")?));
     assert!(reachable.contains(&ModuleId::new("executive")?));
+
+    // And: the branching factor is 1.0 — four edges over four distinct sources
+    // (goal, planner, tool, executive), a near-critical observability proxy.
+    assert!((graph.average_branching() - 1.0).abs() < f32::EPSILON);
     Ok(())
 }

@@ -76,6 +76,24 @@ impl ModuleGraph {
         seen
     }
 
+    /// Average out-degree over nodes that emit at least one edge — the network
+    /// branching factor.
+    ///
+    /// This is an observability proxy for criticality (self-organized branching
+    /// σ ≈ 1): know it, do not bet the architecture on it. It is *not* a control
+    /// law — nothing in the core steers toward any particular value. `0.0` for an
+    /// empty graph.
+    pub fn average_branching(&self) -> f32 {
+        let mut sources = BTreeSet::new();
+        for (from, _) in &self.edges {
+            sources.insert(from);
+        }
+        if sources.is_empty() {
+            return 0.0;
+        }
+        self.edges.len() as f32 / sources.len() as f32
+    }
+
     /// The module with the highest total degree (in + out) — the connectome hub
     /// where robustness measures pay off most. `None` if there are no modules.
     pub fn hub(&self) -> Option<ModuleId> {

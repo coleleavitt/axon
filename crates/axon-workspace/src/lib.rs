@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::num::NonZeroUsize;
 
+use axon_core::Priority;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Goal(String);
@@ -26,28 +28,37 @@ impl Goal {
 pub struct Broadcast {
     kind: BroadcastKind,
     text: String,
+    salience: Priority,
 }
 
 impl Broadcast {
     pub fn observation(text: impl Into<String>) -> Self {
-        Self {
-            kind: BroadcastKind::Observation,
-            text: text.into(),
-        }
+        Self::of(BroadcastKind::Observation, text)
     }
 
     pub fn decision(text: impl Into<String>) -> Self {
-        Self {
-            kind: BroadcastKind::Decision,
-            text: text.into(),
-        }
+        Self::of(BroadcastKind::Decision, text)
     }
 
     pub fn alert(text: impl Into<String>) -> Self {
+        Self::of(BroadcastKind::Alert, text)
+    }
+
+    fn of(kind: BroadcastKind, text: impl Into<String>) -> Self {
         Self {
-            kind: BroadcastKind::Alert,
+            kind,
             text: text.into(),
+            salience: kind.default_salience(),
         }
+    }
+
+    /// Override the ignition salience (default is the kind's; see
+    /// [`BroadcastKind::default_salience`]). Higher salience wins admission to the
+    /// bounded workspace and resists eviction.
+    #[must_use]
+    pub fn with_salience(mut self, salience: Priority) -> Self {
+        self.salience = salience;
+        self
     }
 
     pub const fn kind(&self) -> BroadcastKind {
@@ -57,6 +68,10 @@ impl Broadcast {
     pub fn text(&self) -> &str {
         &self.text
     }
+
+    pub const fn salience(&self) -> Priority {
+        self.salience
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +80,18 @@ pub enum BroadcastKind {
     Observation,
     Decision,
     Alert,
+}
+
+impl BroadcastKind {
+    /// Default ignition salience: alerts outrank decisions outrank observations,
+    /// so a flood of routine observations cannot evict an urgent alert.
+    pub const fn default_salience(self) -> Priority {
+        match self {
+            Self::Alert => Priority::new(10),
+            Self::Decision => Priority::new(5),
+            Self::Observation => Priority::new(1),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,15 +125,48 @@ impl Workspace {
         self.goal.as_ref()
     }
 
-    pub fn broadcast(&mut self, item: Broadcast) {
-        if self.broadcasts.len() == self.capacity.get() {
-            self.broadcasts.remove(0);
+    /// Admit `item` to the bounded workspace under salience competition (GWT
+    /// ignition). Below capacity it is always admitted. When full, it is admitted
+    /// only if it is at least as salient as the current weakest item — evicting
+    /// that weakest, oldest-first among ties — and dropped otherwise. Returns
+    /// whether it was admitted, so a routine observation can never push out an
+    /// urgent alert.
+    pub fn broadcast(&mut self, item: Broadcast) -> bool {
+        if self.broadcasts.len() < self.capacity.get() {
+            self.broadcasts.push(item);
+            return true;
         }
-        self.broadcasts.push(item);
+        match self.weakest_index() {
+            Some(index) if item.salience >= self.broadcasts[index].salience => {
+                self.broadcasts.remove(index);
+                self.broadcasts.push(item);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn broadcasts(&self) -> &[Broadcast] {
         &self.broadcasts
+    }
+
+    /// The most salient item currently held (most recent among ties), or `None`.
+    pub fn most_salient(&self) -> Option<&Broadcast> {
+        self.broadcasts.iter().max_by_key(|item| item.salience)
+    }
+
+    /// Index of the weakest-salience item, oldest first among ties — the next to
+    /// be evicted under admission pressure.
+    fn weakest_index(&self) -> Option<usize> {
+        self.broadcasts
+            .iter()
+            .enumerate()
+            .min_by(|(left_index, left), (right_index, right)| {
+                left.salience
+                    .cmp(&right.salience)
+                    .then(left_index.cmp(right_index))
+            })
+            .map(|(index, _)| index)
     }
 }
 

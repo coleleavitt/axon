@@ -10,7 +10,7 @@ use crate::plasticity::{Credit, Plasticity, Reinforcement};
 use crate::profile::RoutingProfile;
 use crate::report::TraceStep;
 use crate::rng::Rng;
-use crate::route::{Route, Sign, Weight};
+use crate::route::{Route, Sign, Weight, round_to_i16};
 use crate::signal::Signal;
 
 #[derive(Debug)]
@@ -293,6 +293,34 @@ impl<P> RoutingTable<P> {
     pub fn decay(&mut self, rate: f32) {
         for route in &mut self.routes {
             route.decay(rate);
+        }
+    }
+
+    /// The total magnitude of learned weight across all edges (the L1 norm of the
+    /// plastic component) — the quantity homeostasis keeps bounded.
+    pub fn learned_magnitude(&self) -> u64 {
+        self.routes
+            .iter()
+            .map(|route| u64::from(route.learned().unsigned_abs()))
+            .sum()
+    }
+
+    /// Homeostatic synaptic scaling: if the total learned magnitude exceeds
+    /// `max_total`, multiplicatively rescale every learned weight to bring it back
+    /// to `max_total`, preserving relative strengths.
+    ///
+    /// This is the E/I-balance brake — a slow global renormalization that stops
+    /// repeated reinforcement from blowing the graph up (or, after decay, lets it
+    /// settle), without disturbing what was learned *relative* to everything else.
+    /// Weights already within budget are left untouched.
+    pub fn homeostatic_scale(&mut self, max_total: u64) {
+        let total = self.learned_magnitude();
+        if total <= max_total || total == 0 {
+            return;
+        }
+        let factor = max_total as f32 / total as f32;
+        for route in &mut self.routes {
+            route.set_learned(round_to_i16(f32::from(route.learned()) * factor));
         }
     }
 

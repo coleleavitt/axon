@@ -197,6 +197,41 @@ fn credit_decays_across_multi_hop_trajectories() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn homeostatic_scaling_caps_total_learned_magnitude() -> Result<(), Box<dyn Error>> {
+    // Given: a two-hop run that reinforces both traversed edges (in->a, a->b).
+    let mut runtime = chain_runtime()?;
+    let report = runtime.run(InputId::new("in")?, Signal::new(1))?;
+    let plasticity = ProportionalPlasticity::default();
+    runtime.reinforce(
+        &plasticity,
+        report.steps(),
+        Reinforcement::new(0.0, 1.0, 0.9),
+        &mut |_| {},
+    );
+    let before = runtime.learned_magnitude();
+    assert!(before > 10);
+
+    // When: homeostatic scaling caps the total magnitude below what was learned.
+    let a_b = EdgeId::new(EndpointId::from(ModuleId::new("a")?), ModuleId::new("b")?);
+    let in_a = input_edge("a")?;
+    runtime.homeostatic_scale(10);
+
+    // Then: the total is brought within budget, weights shrink, and the relative
+    // order is preserved (the more-credited edge stays at least as strong).
+    assert!(runtime.learned_magnitude() <= 10);
+    let learned = runtime.learned_weights();
+    let a_b_w = learned_of(&learned, &a_b).unwrap_or(0);
+    let in_a_w = learned_of(&learned, &in_a).unwrap_or(0);
+    assert!(a_b_w >= in_a_w);
+    assert!(a_b_w > 0);
+
+    // And: scaling with a generous budget is a no-op.
+    runtime.homeostatic_scale(1_000);
+    assert!(runtime.learned_magnitude() <= 10);
+    Ok(())
+}
+
+#[test]
 fn decay_pulls_learning_back_toward_the_prior() -> Result<(), Box<dyn Error>> {
     let mut runtime = two_route_runtime()?;
     let report = runtime.run(InputId::new("in")?, Signal::new(1))?;

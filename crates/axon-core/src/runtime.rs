@@ -366,6 +366,18 @@ impl<P> Runtime<P> {
         self.routing.decay(rate);
     }
 
+    /// Homeostatically rescale learned weights to keep their total magnitude
+    /// within `max_total` — see [`RoutingTable::homeostatic_scale`].
+    pub fn homeostatic_scale(&mut self, max_total: u64) {
+        self.routing.homeostatic_scale(max_total);
+    }
+
+    /// The total magnitude of learned weight across all edges — see
+    /// [`RoutingTable::learned_magnitude`].
+    pub fn learned_magnitude(&self) -> u64 {
+        self.routing.learned_magnitude()
+    }
+
     /// Snapshot learned routing weights for persistence — see
     /// [`RoutingTable::learned_weights`].
     pub fn learned_weights(&self) -> Vec<(EdgeId, i16)> {

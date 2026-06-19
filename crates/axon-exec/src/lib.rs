@@ -9,6 +9,7 @@ use axon_workspace::{Broadcast, Workspace};
 mod agent;
 mod bridge;
 mod learning;
+mod plan_stack;
 mod planning;
 mod risk;
 
@@ -26,6 +27,7 @@ pub use agent::{
 };
 pub use bridge::encode_salient;
 pub use learning::{LearningLoop, OutcomeError};
+pub use plan_stack::PlanStack;
 pub use planning::{plan_prompt, propose_plan};
 pub use risk::{KeywordRisk, RiskAppraiser, RiskGate};
 

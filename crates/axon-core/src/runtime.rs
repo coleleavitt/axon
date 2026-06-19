@@ -265,6 +265,18 @@ impl<P> Runtime<P> {
         self.routing.graph()
     }
 
+    /// The top-`limit` modules that would be recruited from `from` for `signal`,
+    /// ranked by weight — the targets of a fan-out / multicast dispatch. Single
+    /// signal, several modules; the caller drives each. See
+    /// [`RoutingTable::select_all`].
+    pub fn recruit(&self, from: &EndpointId, signal: &Signal<P>, limit: usize) -> Vec<ModuleId> {
+        self.routing
+            .select_all(from, signal, limit)
+            .iter()
+            .map(|route| route.to().clone())
+            .collect()
+    }
+
     pub fn module_count(&self) -> usize {
         self.modules.len()
     }

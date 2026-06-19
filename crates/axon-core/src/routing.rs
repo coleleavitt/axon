@@ -185,6 +185,34 @@ impl<P> RoutingTable<P> {
         }
     }
 
+    /// Select the top-`limit` admitted routes from `from`, ranked by effective
+    /// weight (descending, ties broken by target id for determinism).
+    ///
+    /// This is the multicast / parallel-recruitment primitive: a single event
+    /// (an alert that should both write memory *and* interrupt the planner) can
+    /// drive several modules at once. Single-winner [`select`](Self::select) stays
+    /// the default; callers opt into fan-out explicitly.
+    pub fn select_all<'a>(
+        &'a self,
+        from: &EndpointId,
+        signal: &Signal<P>,
+        limit: usize,
+    ) -> Vec<&'a Route<P>> {
+        let mut admitted: Vec<&Route<P>> = self
+            .routes
+            .iter()
+            .filter(|route| route.from() == from && route.admits(signal))
+            .collect();
+        admitted.sort_by(|left, right| {
+            right
+                .weight()
+                .cmp(&left.weight())
+                .then_with(|| left.to().cmp(right.to()))
+        });
+        admitted.truncate(limit);
+        admitted
+    }
+
     /// Apply graded, eligibility-weighted credit to every edge traversed in
     /// `steps`, mutating learned weights and emitting one
     /// [`RunEvent::Reinforced`] per changed edge.

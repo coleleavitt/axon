@@ -14,6 +14,7 @@ mod routing;
 mod runtime;
 mod runtime_async;
 mod signal;
+mod working_memory;
 
 pub use breaker::CircuitBreaker;
 pub use edge::EdgeId;
@@ -31,3 +32,4 @@ pub use routing::{RoutingError, RoutingTable};
 pub use runtime::{AgentLoop, Runtime};
 pub use runtime_async::{AsyncModule, AsyncRuntime, BoxFuture};
 pub use signal::{Priority, Signal};
+pub use working_memory::WorkingMemory;

@@ -22,4 +22,6 @@ pub enum RunEvent {
     /// Credit assignment changed `edge`'s learned weight by `delta` (positive
     /// strengthens, negative weakens).
     Reinforced { edge: EdgeId, delta: i16 },
+    /// The run was cancelled at `at` by a [`StopToken`](crate::StopToken).
+    Halted { at: EndpointId },
 }

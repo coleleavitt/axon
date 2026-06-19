@@ -19,6 +19,7 @@ use crate::report::{RunReport, RunStatus, TraceStep};
 use crate::route::{Route, Weight};
 use crate::routing::RoutingTable;
 use crate::signal::Signal;
+use crate::stop::StopToken;
 
 /// A heap-allocated future, so the [`AsyncModule`] trait stays dyn-compatible.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -37,6 +38,7 @@ pub struct AsyncRuntime<P> {
     modules: HashMap<ModuleId, Box<dyn AsyncModule<P>>>,
     routing: RoutingTable<P>,
     step_limit: StepLimit,
+    stop: Option<StopToken>,
 }
 
 impl<P> AsyncRuntime<P> {
@@ -45,7 +47,16 @@ impl<P> AsyncRuntime<P> {
             modules: HashMap::new(),
             routing: RoutingTable::new(),
             step_limit,
+            stop: None,
         }
+    }
+
+    /// Attach a cooperative cancellation handle, checked at each step boundary
+    /// (between awaited modules). See [`Runtime::with_stop_token`](crate::Runtime::with_stop_token).
+    #[must_use]
+    pub fn with_stop_token(mut self, stop: StopToken) -> Self {
+        self.stop = Some(stop);
+        self
     }
 
     pub fn insert_module<M>(&mut self, module: M) -> Result<(), RuntimeError>
@@ -133,6 +144,10 @@ impl<P> AsyncRuntime<P> {
         let mut steps_taken = 0usize;
 
         loop {
+            if self.stop.as_ref().is_some_and(StopToken::is_stopped) {
+                observer(&RunEvent::Halted { at: at.clone() });
+                return Ok(RunReport::new(RunStatus::Halted { at }, steps));
+            }
             if steps_taken >= self.step_limit.get() {
                 return Err(RuntimeError::StepLimitExceeded {
                     limit: self.step_limit,

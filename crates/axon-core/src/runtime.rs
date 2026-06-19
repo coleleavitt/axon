@@ -15,12 +15,15 @@ use crate::rng::{DEFAULT_SEED, Rng};
 use crate::route::{Route, Weight};
 use crate::routing::RoutingTable;
 use crate::signal::Signal;
+use crate::stop::StopToken;
 
 #[derive(Debug)]
 pub struct Runtime<P> {
     modules: HashMap<ModuleId, Box<dyn Module<P>>>,
     routing: RoutingTable<P>,
     step_limit: StepLimit,
+    /// Optional cooperative cancellation handle, checked at each step boundary.
+    stop: Option<StopToken>,
     /// Softmax temperature for route selection — the load-bearing `exploration`
     /// neuromodulator. `0.0` (default) means deterministic argmax selection.
     exploration: f32,
@@ -42,7 +45,17 @@ impl<P> Runtime<P> {
             margin: 0,
             seed: DEFAULT_SEED,
             rng: Rng::seeded(DEFAULT_SEED),
+            stop: None,
         }
+    }
+
+    /// Attach a cooperative cancellation handle. Calling [`StopToken::stop`] on
+    /// any clone halts the run at the next step boundary with
+    /// [`RunStatus::Halted`].
+    #[must_use]
+    pub fn with_stop_token(mut self, stop: StopToken) -> Self {
+        self.stop = Some(stop);
+        self
     }
 
     /// Set the exploration temperature consulted at selection time. `0.0` keeps
@@ -173,6 +186,11 @@ impl<P> Runtime<P> {
         let mut steps_taken = 0usize;
 
         loop {
+            // Cooperative cancellation: the global brake, checked each step.
+            if self.stop.as_ref().is_some_and(StopToken::is_stopped) {
+                observer(&RunEvent::Halted { at: at.clone() });
+                return Ok(RunReport::new(RunStatus::Halted { at }, steps));
+            }
             if steps_taken >= self.step_limit.get() {
                 return Err(RuntimeError::StepLimitExceeded {
                     limit: self.step_limit,

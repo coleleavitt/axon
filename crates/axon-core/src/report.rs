@@ -55,6 +55,15 @@ impl<P> RunReport<P> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunStatus<P> {
     Stopped(Signal<P>),
-    Dropped { at: ModuleId },
-    NoRoute { at: EndpointId, signal: Signal<P> },
+    Dropped {
+        at: ModuleId,
+    },
+    NoRoute {
+        at: EndpointId,
+        signal: Signal<P>,
+    },
+    /// The run was cancelled by a [`StopToken`](crate::StopToken) at `at`.
+    Halted {
+        at: EndpointId,
+    },
 }

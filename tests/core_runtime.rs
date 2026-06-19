@@ -77,6 +77,7 @@ fn assert_no_route_payload(report: &RunReport<Payload>, expected: &Payload) {
         RunStatus::NoRoute { at: _, signal } => assert_eq!(signal.payload(), expected),
         RunStatus::Stopped(signal) => panic!("unexpected stop: {signal:?}"),
         RunStatus::Dropped { at } => panic!("unexpected drop at {at}"),
+        RunStatus::Halted { at } => panic!("unexpected halt at {at}"),
     }
 }
 
@@ -107,6 +108,7 @@ fn run_stops_with_observation_when_plan_reaches_tool() -> Result<(), Box<dyn Err
         RunStatus::Stopped(signal) => assert_eq!(signal.payload(), &Payload::Observation),
         RunStatus::Dropped { at } => panic!("unexpected drop at {at}"),
         RunStatus::NoRoute { at, signal: _ } => panic!("unexpected missing route at {at}"),
+        RunStatus::Halted { at } => panic!("unexpected halt at {at}"),
     }
     Ok(())
 }
@@ -126,6 +128,7 @@ fn run_returns_no_route_when_default_deny_blocks_signal() -> Result<(), Box<dyn 
         RunStatus::NoRoute { at, signal: _ } => assert_eq!(at, &EndpointId::from(input)),
         RunStatus::Stopped(signal) => panic!("unexpected stop: {signal:?}"),
         RunStatus::Dropped { at } => panic!("unexpected drop at {at}"),
+        RunStatus::Halted { at } => panic!("unexpected halt at {at}"),
     }
     assert_no_route_payload(&report, &Payload::Plan);
     Ok(())

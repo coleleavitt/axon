@@ -73,6 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         RunStatus::Stopped(signal) => assert_eq!(signal.into_payload(), Payload::Observation),
         RunStatus::Dropped { at } => panic!("unexpected drop at {at}"),
         RunStatus::NoRoute { at, signal: _ } => panic!("unexpected missing route at {at}"),
+        RunStatus::Halted { at } => panic!("unexpected halt at {at}"),
     }
 
     Ok(())

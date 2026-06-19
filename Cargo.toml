@@ -1,0 +1,26 @@
+[package]
+name = "axon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A tiny typed routing core for agentic SDKs."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+exclude = [
+    "docs/research/papers/**",
+    "docs/research/deep_research_reports/**",
+    "jfc-transcript.md",
+]
+
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+non_ascii_idents = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

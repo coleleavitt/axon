@@ -113,6 +113,43 @@ impl EpisodicStore {
         self.capacity
     }
 
+    /// Recall by embedding similarity rather than exact lexical overlap: rank
+    /// episodes by cosine(query, episode) scaled by recency and importance.
+    ///
+    /// This is the content-addressable / pattern-completion path — with a real
+    /// (`axon-provider`) embedder it recalls from paraphrased cues that the
+    /// lexical [`recall`](MemoryStore::recall) path would miss. With the
+    /// deterministic [`HashEmbedder`] it degrades gracefully to graded
+    /// token-overlap similarity (still better than yes/no `contains`).
+    pub fn rank_by_similarity<'a>(
+        &'a self,
+        query: &str,
+        embedder: &dyn Embedder,
+    ) -> Vec<SimilarHit<'a>> {
+        let cue = embedder.embed(query);
+        let newest = self.next_id.saturating_sub(1);
+        let mut hits: Vec<SimilarHit<'a>> = self
+            .episodes
+            .iter()
+            .filter_map(|episode| {
+                let similarity = cosine(&cue, &embedder.embed(episode.text()));
+                (similarity > 0.0).then_some(SimilarHit {
+                    episode,
+                    similarity,
+                    recency: recency_weight(episode.id, newest),
+                })
+            })
+            .collect();
+        hits.sort_by(|left, right| {
+            right
+                .score()
+                .partial_cmp(&left.score())
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| right.episode.id.cmp(&left.episode.id))
+        });
+        hits
+    }
+
     /// Evict lowest-value episodes until the store is within capacity.
     fn enforce_capacity(&mut self) {
         let Some(capacity) = self.capacity else {
@@ -357,6 +394,101 @@ impl SchemaMemory {
 
     pub const fn support(&self) -> usize {
         self.support
+    }
+}
+
+/// Maps text to a dense vector so memories can be recalled by *similarity*, not
+/// just exact token overlap. Implement against a real model (e.g. `axon-provider`
+/// behind the `openai` feature) for semantic recall; the built-in
+/// [`HashEmbedder`] is a deterministic, dependency-free stand-in for tests and
+/// offline use.
+pub trait Embedder {
+    fn embed(&self, text: &str) -> Vec<f32>;
+}
+
+/// A deterministic, dependency-free embedder: a hashed bag-of-tokens. Each token
+/// increments one of `dims` buckets (FNV-1a hashed), so texts sharing tokens get
+/// similar vectors. It captures lexical overlap, not true semantics, but gives a
+/// graded, length-normalized similarity and a working [`Embedder`] seam.
+#[derive(Debug, Clone, Copy)]
+pub struct HashEmbedder {
+    dims: usize,
+}
+
+impl HashEmbedder {
+    pub const fn new(dims: usize) -> Self {
+        Self { dims }
+    }
+}
+
+impl Default for HashEmbedder {
+    fn default() -> Self {
+        Self { dims: 64 }
+    }
+}
+
+impl Embedder for HashEmbedder {
+    fn embed(&self, text: &str) -> Vec<f32> {
+        let dims = self.dims.max(1);
+        let mut vector = vec![0.0_f32; dims];
+        for token in tokenize(text) {
+            let bucket = (fnv1a(&token) % dims as u64) as usize;
+            vector[bucket] += 1.0;
+        }
+        vector
+    }
+}
+
+/// FNV-1a hash — a small, dependency-free, deterministic string hash.
+fn fnv1a(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Cosine similarity of two vectors in `[0.0, 1.0]` for non-negative inputs;
+/// `0.0` when either is the zero vector.
+fn cosine(left: &[f32], right: &[f32]) -> f32 {
+    let dot: f32 = left.iter().zip(right).map(|(a, b)| a * b).sum();
+    let norm_left: f32 = left.iter().map(|a| a * a).sum();
+    let norm_right: f32 = right.iter().map(|b| b * b).sum();
+    if norm_left > 0.0 && norm_right > 0.0 {
+        dot / (norm_left.sqrt() * norm_right.sqrt())
+    } else {
+        0.0
+    }
+}
+
+/// A similarity-ranked recall hit: the matched episode plus its cosine
+/// similarity and recency. See [`EpisodicStore::rank_by_similarity`].
+#[derive(Debug, Clone, Copy)]
+pub struct SimilarHit<'a> {
+    episode: &'a Episode,
+    similarity: f32,
+    recency: f32,
+}
+
+impl<'a> SimilarHit<'a> {
+    pub const fn episode(&self) -> &Episode {
+        self.episode
+    }
+
+    /// Cosine similarity between the cue and the episode, in `[0.0, 1.0]`.
+    pub const fn similarity(&self) -> f32 {
+        self.similarity
+    }
+
+    /// Recency weight in `(0.0, 1.0]`.
+    pub const fn recency(&self) -> f32 {
+        self.recency
+    }
+
+    /// Combined score `similarity × recency × importance`.
+    pub fn score(&self) -> f32 {
+        self.similarity * self.recency * self.episode.importance()
     }
 }
 

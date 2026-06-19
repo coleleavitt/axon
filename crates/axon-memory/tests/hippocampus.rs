@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use axon_memory::{Consolidator, Episode, EpisodicStore, MemoryStore, RecallQuery};
+use axon_memory::{Consolidator, Episode, EpisodicStore, HashEmbedder, MemoryStore, RecallQuery};
 
 #[test]
 fn episodic_store_recalls_episodes_by_partial_cue() -> Result<(), Box<dyn Error>> {
@@ -104,6 +104,25 @@ fn importance_outranks_a_more_recent_but_mundane_memory() -> Result<(), Box<dyn 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].episode().text(), "deploy production");
     assert!(results[0].score() > results[1].score());
+    Ok(())
+}
+
+#[test]
+fn similarity_recall_ranks_relevant_memory_and_drops_unrelated() -> Result<(), Box<dyn Error>> {
+    // Given: one on-topic memory and one unrelated one.
+    let mut store = EpisodicStore::new();
+    store.encode(Episode::new("read the cargo manifest file"));
+    store.encode(Episode::new("brew a fresh cup of coffee"));
+
+    // When: recalled by embedding similarity to a paraphrased cue.
+    let embedder = HashEmbedder::default();
+    let hits = store.rank_by_similarity("inspect the cargo manifest", &embedder);
+
+    // Then: the on-topic memory is the top hit with positive similarity, and the
+    // unrelated one (no shared tokens) is filtered out entirely.
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].episode().text().contains("cargo manifest"));
+    assert!(hits[0].similarity() > 0.0);
     Ok(())
 }
 

@@ -25,6 +25,23 @@ impl fmt::Display for Weight {
     }
 }
 
+/// The energy/spend a route costs to traverse — tokens, latency, or dollars for
+/// a coding SDK calling paid endpoints. Default `0` (free), so untagged routes
+/// never affect a budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Cost(u32);
+
+impl Cost {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
 /// Round a real-valued weight adjustment to the nearest `i16`, saturating at
 /// the bounds. Shared by plastic decay and the [`Plasticity`](crate::Plasticity)
 /// policy so both clamp learning identically.
@@ -48,6 +65,7 @@ pub struct Route<P> {
     /// weight is `base + learned`. Kept separate so decay can pull learning back
     /// toward the prior without erasing it, and so only `learned` is persisted.
     learned: i16,
+    cost: Cost,
     gate: Box<dyn Gate<P> + Send + Sync + 'static>,
 }
 
@@ -61,8 +79,16 @@ impl<P> Route<P> {
             to,
             base: weight,
             learned: 0,
+            cost: Cost::new(0),
             gate: Box::new(gate),
         }
+    }
+
+    /// Tag this route with a traversal [`Cost`] for budget-aware routing.
+    #[must_use]
+    pub fn with_cost(mut self, cost: Cost) -> Self {
+        self.cost = cost;
+        self
     }
 
     pub fn open(from: EndpointId, to: ModuleId, weight: Weight) -> Self {
@@ -91,6 +117,11 @@ impl<P> Route<P> {
     /// The plastic component accumulated through reinforcement.
     pub const fn learned(&self) -> i16 {
         self.learned
+    }
+
+    /// This route's traversal cost.
+    pub const fn cost(&self) -> Cost {
+        self.cost
     }
 
     /// This route's `(from, to)` identity.
@@ -132,6 +163,7 @@ impl<P> fmt::Debug for Route<P> {
             .field("weight", &self.weight())
             .field("base", &self.base)
             .field("learned", &self.learned)
+            .field("cost", &self.cost)
             .field("gate", &self.gate)
             .finish()
     }

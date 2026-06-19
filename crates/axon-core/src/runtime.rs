@@ -12,7 +12,7 @@ use crate::module::{Module, ModuleOutput};
 use crate::plasticity::{Plasticity, Reinforcement};
 use crate::report::{RunReport, RunStatus, TraceStep};
 use crate::rng::{DEFAULT_SEED, Rng};
-use crate::route::{Route, Weight};
+use crate::route::{Cost, Route, Weight};
 use crate::routing::RoutingTable;
 use crate::signal::Signal;
 use crate::stop::StopToken;
@@ -33,6 +33,8 @@ pub struct Runtime<P> {
     /// The seed this runtime's [`Rng`] was created from, surfaced for replay.
     seed: u64,
     rng: Rng,
+    /// Optional per-run energy budget; a run refuses a route it cannot afford.
+    budget: Option<u32>,
 }
 
 impl<P> Runtime<P> {
@@ -46,7 +48,23 @@ impl<P> Runtime<P> {
             seed: DEFAULT_SEED,
             rng: Rng::seeded(DEFAULT_SEED),
             stop: None,
+            budget: None,
         }
+    }
+
+    /// Cap the total route cost a single run may spend. When the next route would
+    /// exceed the remaining budget it is refused and the run ends with
+    /// [`RunStatus::NoRoute`] — shedding load under budget pressure. The budget is
+    /// per run (reset each call), keeping runs independent and reproducible.
+    #[must_use]
+    pub const fn with_budget(mut self, budget: u32) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    /// The per-run energy budget, if any.
+    pub const fn budget(&self) -> Option<u32> {
+        self.budget
     }
 
     /// Attach a cooperative cancellation handle. Calling [`StopToken::stop`] on
@@ -115,6 +133,18 @@ impl<P> Runtime<P> {
         }
     }
 
+    fn validate_endpoints(&self, from: &EndpointId, to: &ModuleId) -> Result<(), RuntimeError> {
+        if let EndpointId::Module(module) = from {
+            if !self.modules.contains_key(module) {
+                return Err(RuntimeError::MissingModule { id: module.clone() });
+            }
+        }
+        if !self.modules.contains_key(to) {
+            return Err(RuntimeError::MissingModule { id: to.clone() });
+        }
+        Ok(())
+    }
+
     pub fn add_route<G>(
         &mut self,
         from: EndpointId,
@@ -125,15 +155,27 @@ impl<P> Runtime<P> {
     where
         G: Gate<P> + Send + Sync + 'static,
     {
-        if let EndpointId::Module(module) = &from {
-            if !self.modules.contains_key(module) {
-                return Err(RuntimeError::MissingModule { id: module.clone() });
-            }
-        }
-        if !self.modules.contains_key(&to) {
-            return Err(RuntimeError::MissingModule { id: to });
-        }
+        self.validate_endpoints(&from, &to)?;
         self.routing.push(Route::new(from, to, weight, gate));
+        Ok(())
+    }
+
+    /// Like [`add_route`](Self::add_route), tagging the route with a traversal
+    /// [`Cost`] that counts against a [`with_budget`](Self::with_budget) cap.
+    pub fn add_route_with_cost<G>(
+        &mut self,
+        from: EndpointId,
+        to: ModuleId,
+        weight: Weight,
+        cost: Cost,
+        gate: G,
+    ) -> Result<(), RuntimeError>
+    where
+        G: Gate<P> + Send + Sync + 'static,
+    {
+        self.validate_endpoints(&from, &to)?;
+        self.routing
+            .push(Route::new(from, to, weight, gate).with_cost(cost));
         Ok(())
     }
 
@@ -184,6 +226,7 @@ impl<P> Runtime<P> {
         let mut signal = initial;
         let mut steps = Vec::new();
         let mut steps_taken = 0usize;
+        let mut spent = 0u32;
 
         loop {
             // Cooperative cancellation: the global brake, checked each step.
@@ -209,6 +252,15 @@ impl<P> Runtime<P> {
             let Some(route) = selected else {
                 return Ok(RunReport::new(RunStatus::NoRoute { at, signal }, steps));
             };
+
+            // Budget pressure: refuse a route the run cannot afford.
+            let route_cost = route.cost().get();
+            if let Some(cap) = self.budget {
+                if spent.saturating_add(route_cost) > cap {
+                    return Ok(RunReport::new(RunStatus::NoRoute { at, signal }, steps));
+                }
+            }
+            spent = spent.saturating_add(route_cost);
 
             let to = route.to().clone();
             let module = self

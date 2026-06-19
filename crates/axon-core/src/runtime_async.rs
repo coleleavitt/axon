@@ -6,8 +6,9 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::pin::Pin;
+use std::task::Poll;
 
 use crate::error::RuntimeError;
 use crate::event::RunEvent;
@@ -171,7 +172,40 @@ impl<P> AsyncRuntime<P> {
                 to: to.clone(),
             });
 
-            match module.handle(signal).await {
+            // With a stop token, race the module's future against cancellation so
+            // a hung tool is dropped mid-flight rather than awaited to completion.
+            let handled = match &self.stop {
+                Some(token) => {
+                    let token = token.clone();
+                    let mut future = module.handle(signal);
+                    poll_fn(|cx| {
+                        if token.is_stopped() {
+                            return Poll::Ready(None);
+                        }
+                        token.register(cx.waker());
+                        match Pin::new(&mut future).poll(cx) {
+                            Poll::Ready(output) => Poll::Ready(Some(output)),
+                            Poll::Pending if token.is_stopped() => Poll::Ready(None),
+                            Poll::Pending => Poll::Pending,
+                        }
+                    })
+                    .await
+                }
+                None => Some(module.handle(signal).await),
+            };
+            let Some(result) = handled else {
+                observer(&RunEvent::Halted {
+                    at: EndpointId::from(to.clone()),
+                });
+                return Ok(RunReport::new(
+                    RunStatus::Halted {
+                        at: EndpointId::from(to),
+                    },
+                    steps,
+                ));
+            };
+
+            match result {
                 Ok(ModuleOutput::Emit(next)) => {
                     observer(&RunEvent::Emitted { at: to.clone() });
                     at = EndpointId::from(to);

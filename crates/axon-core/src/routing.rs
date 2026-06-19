@@ -7,6 +7,7 @@ use crate::event::RunEvent;
 use crate::id::EndpointId;
 use crate::plasticity::{Credit, Plasticity, Reinforcement};
 use crate::report::TraceStep;
+use crate::rng::Rng;
 use crate::route::{Route, Weight};
 use crate::signal::Signal;
 
@@ -76,6 +77,51 @@ impl<P> RoutingTable<P> {
         } else {
             Ok(selected)
         }
+    }
+
+    /// Select a route stochastically, with `exploration` as a softmax
+    /// (Boltzmann) temperature over admitted routes' effective weights.
+    ///
+    /// This is how the otherwise-dead `exploration` neuromodulator becomes
+    /// load-bearing: near `0.0` it collapses to the deterministic
+    /// [`select`](Self::select) argmax (exploit); larger values flatten the
+    /// distribution so lower-weight routes win more often (explore). Sampling
+    /// resolves ties, so this path never returns `AmbiguousRoute`. All draws come
+    /// from the supplied seeded [`Rng`], keeping stochastic runs reproducible.
+    pub fn select_modulated<'a>(
+        &'a self,
+        from: &EndpointId,
+        signal: &Signal<P>,
+        exploration: f32,
+        rng: &mut Rng,
+    ) -> Result<Option<&'a Route<P>>, RoutingError> {
+        if exploration <= 0.0 {
+            return self.select(from, signal);
+        }
+        let candidates: Vec<&Route<P>> = self
+            .routes
+            .iter()
+            .filter(|route| route.from() == from && route.admits(signal))
+            .collect();
+        let Some(max) = candidates.iter().map(|route| route.weight().get()).max() else {
+            return Ok(None);
+        };
+        // Boltzmann weights, shifted by the max for numerical stability.
+        let max = f32::from(max);
+        let weights: Vec<f32> = candidates
+            .iter()
+            .map(|route| ((f32::from(route.weight().get()) - max) / exploration).exp())
+            .collect();
+        let total: f32 = weights.iter().sum();
+        let mut threshold = rng.next_f32() * total;
+        for (route, weight) in candidates.iter().zip(&weights) {
+            threshold -= *weight;
+            if threshold <= 0.0 {
+                return Ok(Some(*route));
+            }
+        }
+        // Floating-point shortfall: fall back to the last admitted candidate.
+        Ok(candidates.last().copied())
     }
 
     /// Apply graded, eligibility-weighted credit to every edge traversed in

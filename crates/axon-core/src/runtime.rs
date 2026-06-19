@@ -10,6 +10,7 @@ use crate::limit::StepLimit;
 use crate::module::{Module, ModuleOutput};
 use crate::plasticity::{Plasticity, Reinforcement};
 use crate::report::{RunReport, RunStatus, TraceStep};
+use crate::rng::{DEFAULT_SEED, Rng};
 use crate::route::{Route, Weight};
 use crate::routing::RoutingTable;
 use crate::signal::Signal;
@@ -19,6 +20,12 @@ pub struct Runtime<P> {
     modules: HashMap<ModuleId, Box<dyn Module<P>>>,
     routing: RoutingTable<P>,
     step_limit: StepLimit,
+    /// Softmax temperature for route selection — the load-bearing `exploration`
+    /// neuromodulator. `0.0` (default) means deterministic argmax selection.
+    exploration: f32,
+    /// The seed this runtime's [`Rng`] was created from, surfaced for replay.
+    seed: u64,
+    rng: Rng,
 }
 
 impl<P> Runtime<P> {
@@ -27,7 +34,38 @@ impl<P> Runtime<P> {
             modules: HashMap::new(),
             routing: RoutingTable::new(),
             step_limit,
+            exploration: 0.0,
+            seed: DEFAULT_SEED,
+            rng: Rng::seeded(DEFAULT_SEED),
         }
+    }
+
+    /// Set the exploration temperature consulted at selection time. `0.0` keeps
+    /// deterministic argmax routing; larger values let lower-weight routes win
+    /// more often. Typically driven by `Modulators::exploration()`.
+    #[must_use]
+    pub fn with_exploration(mut self, exploration: f32) -> Self {
+        self.exploration = exploration;
+        self
+    }
+
+    /// Seed the runtime's RNG so stochastic (exploratory) runs are reproducible.
+    #[must_use]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self.rng = Rng::seeded(seed);
+        self
+    }
+
+    /// The seed driving stochastic selection — re-creating a runtime
+    /// [`with_seed`](Self::with_seed) reproduces the same trajectory sequence.
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The active exploration temperature.
+    pub const fn exploration(&self) -> f32 {
+        self.exploration
     }
 
     pub fn insert_module<M>(&mut self, module: M) -> Result<(), RuntimeError>
@@ -122,7 +160,12 @@ impl<P> Runtime<P> {
                 });
             }
 
-            let selected = self.routing.select(&at, &signal)?;
+            let selected = if self.exploration > 0.0 {
+                self.routing
+                    .select_modulated(&at, &signal, self.exploration, &mut self.rng)?
+            } else {
+                self.routing.select(&at, &signal)?
+            };
             let Some(route) = selected else {
                 return Ok(RunReport::new(RunStatus::NoRoute { at, signal }, steps));
             };

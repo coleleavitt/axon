@@ -90,14 +90,32 @@ impl RiskTolerance {
     }
 }
 
+/// Acetylcholine mode — ACh biases memory between *laying down* new memories and
+/// *retrieving* old ones. High ACh ([`Encode`](Self::Encode)) favors encoding and
+/// suppresses retrieval interference; low ACh ([`Recall`](Self::Recall)) favors
+/// broad recall and consolidation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Acetylcholine {
+    #[default]
+    Encode,
+    Recall,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Modulators {
     mode: Mode,
+    /// Phasic dopamine: the RPE learning signal that scales plasticity.
     learning_rate: LearningRate,
     exploration: Exploration,
     attention: Attention,
     risk: RiskTolerance,
+    /// Tonic dopamine: baseline vigor / willingness to act, distinct from the
+    /// phasic `learning_rate`. Higher means more readily Go (a lower NoGo margin).
+    tonic: Gain,
+    /// Acetylcholine: encode-vs-recall bias for memory.
+    acetylcholine: Acetylcholine,
 }
 
 impl Modulators {
@@ -108,6 +126,8 @@ impl Modulators {
             exploration: Exploration(Gain::trusted(0.20)),
             attention: Attention(Gain::trusted(1.00)),
             risk: RiskTolerance(Gain::trusted(0.30)),
+            tonic: Gain::trusted(0.50),
+            acetylcholine: Acetylcholine::Encode,
         }
     }
 
@@ -124,12 +144,37 @@ impl Modulators {
             exploration,
             attention,
             risk,
+            tonic: Gain::trusted(0.50),
+            acetylcholine: Acetylcholine::Encode,
         }
     }
 
     pub const fn with_mode(mut self, mode: Mode) -> Self {
         self.mode = mode;
         self
+    }
+
+    /// Set the acetylcholine encode/recall bias.
+    #[must_use]
+    pub const fn with_acetylcholine(mut self, acetylcholine: Acetylcholine) -> Self {
+        self.acetylcholine = acetylcholine;
+        self
+    }
+
+    /// Set the tonic-dopamine level (baseline vigor).
+    pub fn with_tonic_dopamine(mut self, tonic: f32) -> Result<Self, ModulateError> {
+        self.tonic = Gain::new(tonic)?;
+        Ok(self)
+    }
+
+    /// The acetylcholine mode (encode vs recall bias).
+    pub const fn acetylcholine(self) -> Acetylcholine {
+        self.acetylcholine
+    }
+
+    /// Tonic dopamine — baseline vigor, distinct from the phasic `learning_rate`.
+    pub const fn tonic_dopamine(self) -> Gain {
+        self.tonic
     }
 
     pub const fn mode(self) -> Mode {

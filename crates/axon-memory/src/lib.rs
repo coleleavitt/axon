@@ -77,6 +77,17 @@ pub trait MemoryStore {
     fn recall(&self, query: &RecallQuery) -> Vec<RecallResult<'_>>;
 }
 
+/// Acetylcholine-driven recall bias (see [`EpisodicStore::recall_with_mode`]).
+/// `Recall` retrieves broadly; `Encode` narrows to the single best match so a
+/// high-ACh encoding state isn't flooded by retrieval interference. Map an
+/// `axon_modulate::Acetylcholine` onto this at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecallMode {
+    #[default]
+    Recall,
+    Encode,
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EpisodicStore {
@@ -124,6 +135,18 @@ impl EpisodicStore {
 
     pub const fn capacity(&self) -> Option<usize> {
         self.capacity
+    }
+
+    /// Recall under an acetylcholine [`RecallMode`]: `Recall` returns the full
+    /// ranked set (broad retrieval / consolidation), while `Encode` narrows to
+    /// the single best match — suppressing retrieval interference while new
+    /// memories are being laid down (high-ACh encoding state).
+    pub fn recall_with_mode(&self, query: &RecallQuery, mode: RecallMode) -> Vec<RecallResult<'_>> {
+        let mut results = self.recall(query);
+        if mode == RecallMode::Encode {
+            results.truncate(1);
+        }
+        results
     }
 
     /// Recall by embedding similarity rather than exact lexical overlap: rank

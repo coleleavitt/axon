@@ -9,6 +9,7 @@ use axon_memory::{
     MemoryStore,
     ProceduralStore,
     Procedure,
+    RecallMode,
     RecallQuery,
     SchemaStore,
     SemanticStore,
@@ -124,6 +125,23 @@ fn schema_store_is_readable_after_consolidation() -> Result<(), Box<dyn Error>> 
     assert_eq!(tool.len(), 1);
     assert_eq!(tool[0].support(), 2);
     assert!(schemas.recall("predict").is_empty());
+    Ok(())
+}
+
+#[test]
+fn acetylcholine_mode_narrows_encoding_and_broadens_recall() -> Result<(), Box<dyn Error>> {
+    // Given: two equally-relevant memories.
+    let mut store = EpisodicStore::new();
+    store.encode(Episode::new("alpha task"));
+    store.encode(Episode::new("beta task"));
+    let cue = RecallQuery::new("task");
+
+    // Then: Recall mode retrieves broadly (both)...
+    assert_eq!(store.recall_with_mode(&cue, RecallMode::Recall).len(), 2);
+
+    // ...while Encode mode narrows to the single best, suppressing retrieval
+    // interference while new memories are laid down.
+    assert_eq!(store.recall_with_mode(&cue, RecallMode::Encode).len(), 1);
     Ok(())
 }
 

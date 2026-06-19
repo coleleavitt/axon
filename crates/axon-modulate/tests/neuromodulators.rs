@@ -1,7 +1,15 @@
 use std::error::Error;
 
 use axon_core::Priority;
-use axon_modulate::{Attention, Exploration, LearningRate, Mode, Modulators, RiskTolerance};
+use axon_modulate::{
+    Acetylcholine,
+    Attention,
+    Exploration,
+    LearningRate,
+    Mode,
+    Modulators,
+    RiskTolerance,
+};
 
 #[test]
 fn salient_mode_raises_priority_and_verification_gain() -> Result<(), Box<dyn Error>> {
@@ -34,5 +42,28 @@ fn explicit_knobs_are_typed_and_do_not_rewire_routes() -> Result<(), Box<dyn Err
     // Then: the state is data-only and can be consumed by gates/modules.
     assert_eq!(modulators.mode(), Mode::Focused);
     assert_eq!(exploration.get(), 0.10);
+    Ok(())
+}
+
+#[test]
+fn acetylcholine_and_tonic_dopamine_are_distinct_load_bearing_knobs() -> Result<(), Box<dyn Error>>
+{
+    // Given: the baseline state — ACh defaults to Encode, phasic and tonic
+    // dopamine are separate knobs.
+    let baseline = Modulators::baseline();
+    assert_eq!(baseline.acetylcholine(), Acetylcholine::Encode);
+    // Phasic dopamine (learning_rate) and tonic dopamine (vigor) are independent.
+    assert!((baseline.learning_rate().get() - 0.10).abs() < f32::EPSILON);
+    assert!((baseline.tonic_dopamine().get() - 0.50).abs() < f32::EPSILON);
+
+    // When: ACh is switched to Recall and tonic dopamine is raised.
+    let modulators = baseline
+        .with_acetylcholine(Acetylcholine::Recall)
+        .with_tonic_dopamine(0.9)?;
+
+    // Then: both knobs reflect the change, independently of the phasic signal.
+    assert_eq!(modulators.acetylcholine(), Acetylcholine::Recall);
+    assert!((modulators.tonic_dopamine().get() - 0.9).abs() < f32::EPSILON);
+    assert!((modulators.learning_rate().get() - 0.10).abs() < f32::EPSILON);
     Ok(())
 }

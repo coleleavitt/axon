@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::signal::{Priority, Signal};
+use crate::signal::{Phase, Priority, Signal};
 
 pub trait Gate<P>: fmt::Debug {
     fn admits(&self, signal: &Signal<P>) -> bool;
@@ -44,6 +44,34 @@ impl MinPriority {
 impl<P> Gate<P> for MinPriority {
     fn admits(&self, signal: &Signal<P>) -> bool {
         signal.priority() >= self.minimum
+    }
+}
+
+/// A phase gate: admits a signal only when its [`Phase`] is one this route is
+/// active in. Discrete communication-through-coherence — the same graph routes
+/// differently per phase without rewiring (temporal multiplexing).
+#[derive(Debug, Clone)]
+pub struct PhaseGate {
+    active: Vec<Phase>,
+}
+
+impl PhaseGate {
+    /// Active in any of the given phases.
+    pub fn new(phases: impl IntoIterator<Item = Phase>) -> Self {
+        Self {
+            active: phases.into_iter().collect(),
+        }
+    }
+
+    /// Active in exactly one phase.
+    pub fn at(phase: Phase) -> Self {
+        Self::new([phase])
+    }
+}
+
+impl<P> Gate<P> for PhaseGate {
+    fn admits(&self, signal: &Signal<P>) -> bool {
+        self.active.contains(&signal.phase())
     }
 }
 

@@ -108,6 +108,34 @@ fn importance_outranks_a_more_recent_but_mundane_memory() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn bounded_store_forgets_the_least_valuable_memory() -> Result<(), Box<dyn Error>> {
+    // Given: a store bounded to two episodes.
+    let mut store = EpisodicStore::new().with_capacity(2);
+    store.encode(Episode::new("trivia").with_importance(0.1));
+    store.encode(Episode::new("critical incident").with_importance(10.0));
+
+    // When: a third memory is encoded, exceeding capacity.
+    store.encode(Episode::new("note three"));
+
+    // Then: the lowest importance × recency memory (mundane and now stale) is
+    // forgotten, while the important one is retained.
+    assert_eq!(store.episodes().len(), 2);
+    assert!(
+        store
+            .episodes()
+            .iter()
+            .all(|episode| episode.text() != "trivia")
+    );
+    assert!(
+        store
+            .episodes()
+            .iter()
+            .any(|episode| episode.text().contains("critical"))
+    );
+    Ok(())
+}
+
+#[test]
 fn relevance_recency_and_importance_compose_into_the_score() -> Result<(), Box<dyn Error>> {
     // Given: a single, newest memory matching one cue word.
     let mut store = EpisodicStore::new();

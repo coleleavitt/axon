@@ -82,6 +82,7 @@ pub trait MemoryStore {
 pub struct EpisodicStore {
     episodes: Vec<Episode>,
     next_id: u64,
+    capacity: Option<usize>,
 }
 
 impl EpisodicStore {
@@ -89,11 +90,53 @@ impl EpisodicStore {
         Self {
             episodes: Vec::new(),
             next_id: 1,
+            capacity: None,
         }
+    }
+
+    /// Bound the store to at most `capacity` episodes. Once full, each encode
+    /// evicts the least valuable memory — lowest importance × recency — so the
+    /// store actively forgets mundane, stale experience instead of growing
+    /// without bound (NREM-style active forgetting).
+    #[must_use]
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = Some(capacity);
+        self.enforce_capacity();
+        self
     }
 
     pub fn episodes(&self) -> &[Episode] {
         &self.episodes
+    }
+
+    pub const fn capacity(&self) -> Option<usize> {
+        self.capacity
+    }
+
+    /// Evict lowest-value episodes until the store is within capacity.
+    fn enforce_capacity(&mut self) {
+        let Some(capacity) = self.capacity else {
+            return;
+        };
+        while self.episodes.len() > capacity {
+            let newest = self.next_id.saturating_sub(1);
+            let victim = self
+                .episodes
+                .iter()
+                .enumerate()
+                .min_by(|(_, left), (_, right)| {
+                    retention(left, newest)
+                        .partial_cmp(&retention(right, newest))
+                        .unwrap_or(Ordering::Equal)
+                })
+                .map(|(index, _)| index);
+            match victim {
+                Some(index) => {
+                    self.episodes.remove(index);
+                }
+                None => break,
+            }
+        }
     }
 }
 
@@ -119,6 +162,7 @@ impl MemoryStore for EpisodicStore {
         self.next_id = self.next_id.saturating_add(1);
         episode.assign(id);
         self.episodes.push(episode);
+        self.enforce_capacity();
         id
     }
 
@@ -263,6 +307,12 @@ impl<'a> RecallResult<'a> {
 fn recency_weight(id: MemoryId, newest: u64) -> f32 {
     let age = newest.saturating_sub(id.get());
     1.0 / (1.0 + age as f32)
+}
+
+/// A memory's retention value — importance scaled by recency. The lowest-value
+/// episode is the first forgotten when the store is over capacity.
+fn retention(episode: &Episode, newest: u64) -> f32 {
+    episode.importance * recency_weight(episode.id, newest)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

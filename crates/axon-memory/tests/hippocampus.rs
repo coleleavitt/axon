@@ -1,6 +1,14 @@
 use std::error::Error;
 
-use axon_memory::{Consolidator, Episode, EpisodicStore, HashEmbedder, MemoryStore, RecallQuery};
+use axon_memory::{
+    Consolidator,
+    Episode,
+    EpisodicStore,
+    HashEmbedder,
+    MemoryStore,
+    RecallQuery,
+    SchemaStore,
+};
 
 #[test]
 fn episodic_store_recalls_episodes_by_partial_cue() -> Result<(), Box<dyn Error>> {
@@ -66,6 +74,52 @@ fn encode_separates_duplicate_memories() -> Result<(), Box<dyn Error>> {
     // Then: it is not stored twice; the original id is returned.
     assert_eq!(first, again);
     assert_eq!(store.episodes().len(), 1);
+    Ok(())
+}
+
+#[test]
+fn reflection_abstracts_recurring_content_into_insights() -> Result<(), Box<dyn Error>> {
+    // Given: episodes that share recurring content words.
+    let mut store = EpisodicStore::new();
+    store.encode(Episode::new("deploy the billing service"));
+    store.encode(Episode::new("deploy the auth service"));
+    store.encode(Episode::new("restart the cache"));
+
+    // When: the consolidator reflects with a recurrence threshold of two.
+    let insights = Consolidator::new(2).reflect(&store);
+
+    // Then: recurring themes are abstracted with their support, while a one-off
+    // token is not promoted.
+    assert!(
+        insights
+            .iter()
+            .any(|insight| insight.theme() == "deploy" && insight.support() == 2)
+    );
+    assert!(
+        insights
+            .iter()
+            .any(|insight| insight.theme() == "service" && insight.support() == 2)
+    );
+    assert!(insights.iter().all(|insight| insight.theme() != "cache"));
+    Ok(())
+}
+
+#[test]
+fn schema_store_is_readable_after_consolidation() -> Result<(), Box<dyn Error>> {
+    // Given: episodes consolidated into the slow schema store.
+    let mut store = EpisodicStore::new();
+    store.encode(Episode::new("read file").with_tags(["tool"]));
+    store.encode(Episode::new("write file").with_tags(["tool"]));
+    store.encode(Episode::new("predict outcome").with_tags(["predict"]));
+    let mut schemas = SchemaStore::new();
+    schemas.install(Consolidator::new(2).consolidate(&store));
+
+    // When/Then: the consolidated schema is recallable (the slow store is no
+    // longer write-only), while a below-threshold tag is absent.
+    let tool = schemas.recall("tool");
+    assert_eq!(tool.len(), 1);
+    assert_eq!(tool[0].support(), 2);
+    assert!(schemas.recall("predict").is_empty());
     Ok(())
 }
 

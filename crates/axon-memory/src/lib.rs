@@ -398,6 +398,89 @@ impl Consolidator {
             .map(|(tag, support)| SchemaMemory { tag, support })
             .collect()
     }
+
+    /// Reflect over episodic content: cluster episodes by recurring word and emit
+    /// an [`Insight`] for each token appearing in at least `threshold` distinct
+    /// episodes, ranked by support. This is the "dreamer" abstraction step —
+    /// generalizing accumulated experience into reusable themes, complementing
+    /// the tag histogram of [`consolidate`](Self::consolidate).
+    pub fn reflect(&self, store: &EpisodicStore) -> Vec<Insight> {
+        let mut counts = BTreeMap::<String, usize>::new();
+        for episode in store.episodes() {
+            let tokens: BTreeSet<String> = tokenize(episode.text()).into_iter().collect();
+            for token in tokens {
+                counts
+                    .entry(token)
+                    .and_modify(|support| *support = support.saturating_add(1))
+                    .or_insert(1);
+            }
+        }
+        let mut insights: Vec<Insight> = counts
+            .into_iter()
+            .filter(|(_, support)| *support >= self.threshold)
+            .map(|(theme, support)| Insight { theme, support })
+            .collect();
+        insights.sort_by(|left, right| {
+            right
+                .support
+                .cmp(&left.support)
+                .then_with(|| left.theme.cmp(&right.theme))
+        });
+        insights
+    }
+}
+
+/// An abstracted theme discovered by [`Consolidator::reflect`]: a recurring
+/// content word and how many episodes it spans.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Insight {
+    theme: String,
+    support: usize,
+}
+
+impl Insight {
+    pub fn theme(&self) -> &str {
+        &self.theme
+    }
+
+    pub const fn support(&self) -> usize {
+        self.support
+    }
+}
+
+/// The slow, neocortical schema store — the read side the episodic store lacked.
+/// Consolidated [`SchemaMemory`] is installed here and recalled, so generalized
+/// structure is actually consulted rather than written and forgotten (CLS).
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SchemaStore {
+    schemas: Vec<SchemaMemory>,
+}
+
+impl SchemaStore {
+    pub const fn new() -> Self {
+        Self {
+            schemas: Vec::new(),
+        }
+    }
+
+    /// Replace the held schemas with a freshly consolidated set.
+    pub fn install(&mut self, schemas: Vec<SchemaMemory>) {
+        self.schemas = schemas;
+    }
+
+    pub fn schemas(&self) -> &[SchemaMemory] {
+        &self.schemas
+    }
+
+    /// Recall schemas whose tag matches `tag` — the slow-store read path.
+    pub fn recall(&self, tag: &str) -> Vec<&SchemaMemory> {
+        self.schemas
+            .iter()
+            .filter(|schema| schema.tag() == tag)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

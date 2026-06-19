@@ -117,6 +117,11 @@ the next episode has demoted that path below the good tool — and stays there.
   deterministic `MockProvider`, so it stays dependency-free and offline-testable.
 - **Optional persistence** — enable the `serde` feature to snapshot and restore
   memory, workspace, neuromodulator state, and learned routing weights.
+- **Biologically deeper** — sleep-replay consolidation (`ReplayBuffer`:
+  reinforce from memory offline, no tools run), precision-weighted prediction
+  error, recursive predictive-coding hierarchies, synaptic tagging-&-capture with
+  BCM metaplasticity, homeostatic synaptic scaling, active-inference (expected
+  free energy) action selection, and an acetylcholine encode/recall memory mode.
 
 ## Quick start
 
@@ -155,6 +160,7 @@ cargo run --example neuro_stack      # layers composed directly in an Executor
 cargo run --example integrated_loop  # the same layers driven through the core
 cargo run --example llm_planner      # a provider-proposed plan, run with event streaming
 cargo run --example learning_loop    # the closed learning loop: the agent learns to avoid a flaky tool
+cargo run --example dream            # sleep-replay: the agent consolidates learning offline, no tools run
 ```
 
 ## Example application

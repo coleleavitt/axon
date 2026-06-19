@@ -1,9 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Full confidence, in permille (so `Prediction` stays `Eq` — no raw `f32`).
+const FULL_CONFIDENCE: u16 = 1000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prediction {
     action: String,
     expected: Expected,
+    /// Precision in permille `[0, 1000]`: how confident this prediction is.
+    /// Stored as an integer so the type remains `Eq`.
+    confidence: u16,
 }
 
 impl Prediction {
@@ -11,7 +17,19 @@ impl Prediction {
         Self {
             action: action.into(),
             expected,
+            confidence: FULL_CONFIDENCE,
         }
+    }
+
+    /// Set the prediction's precision (confidence) in `[0.0, 1.0]`. A
+    /// hand-written prediction is fully confident (1.0); a learned forward model
+    /// lowers this when it has little evidence. Precision-weights the error the
+    /// prediction produces, so being wrong about something you were unsure of
+    /// teaches less than being wrong about something you were sure of.
+    #[must_use]
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = (confidence.clamp(0.0, 1.0) * 1000.0).round() as u16;
+        self
     }
 
     pub fn action(&self) -> &str {
@@ -20,6 +38,11 @@ impl Prediction {
 
     pub const fn expected(&self) -> &Expected {
         &self.expected
+    }
+
+    /// The prediction's precision (confidence) in `[0.0, 1.0]`.
+    pub fn confidence(&self) -> f32 {
+        f32::from(self.confidence) / 1000.0
     }
 }
 
@@ -72,6 +95,7 @@ pub struct Mismatch {
     action: String,
     expected: Expected,
     observed: String,
+    confidence: u16,
 }
 
 impl fmt::Display for Mismatch {
@@ -90,7 +114,22 @@ impl Mismatch {
             action: prediction.action.clone(),
             expected: prediction.expected.clone(),
             observed: outcome.observed.clone(),
+            confidence: prediction.confidence,
         }
+    }
+
+    /// The precision (confidence) of the prediction this mismatch came from, in
+    /// `[0.0, 1.0]`.
+    pub fn precision(&self) -> f32 {
+        f32::from(self.confidence) / 1000.0
+    }
+
+    /// The precision-weighted error: [`magnitude`](Self::magnitude) scaled by
+    /// [`precision`](Self::precision). This is the quantity a predictive-coding
+    /// layer actually learns from — a confident miss is a strong teaching signal;
+    /// an unsure miss is discounted (inverse-variance weighting).
+    pub fn precision_weighted_magnitude(&self) -> f32 {
+        self.magnitude() * self.precision()
     }
 
     pub fn action(&self) -> &str {
@@ -167,7 +206,7 @@ pub trait Predictor {
 /// escalates.
 #[derive(Debug, Default, Clone)]
 pub struct AssociativePredictor {
-    seen: BTreeMap<String, String>,
+    seen: BTreeMap<String, (String, u32)>,
 }
 
 impl AssociativePredictor {
@@ -188,16 +227,24 @@ impl AssociativePredictor {
 impl Predictor for AssociativePredictor {
     fn predict(&self, context: &str) -> Prediction {
         match self.seen.get(context) {
-            Some(observed) => Prediction::new(context, Expected::Contains(observed.clone())),
-            None => Prediction::new(context, Expected::Anything),
+            Some((observed, count)) => {
+                // Confidence grows with evidence: count / (count + 1).
+                let count = f32::from(u16::try_from(*count).unwrap_or(u16::MAX));
+                Prediction::new(context, Expected::Contains(observed.clone()))
+                    .with_confidence(count / (count + 1.0))
+            }
+            // No evidence yet — predict anything, with zero confidence.
+            None => Prediction::new(context, Expected::Anything).with_confidence(0.0),
         }
     }
 
     fn observe(&mut self, prediction: &Prediction, outcome: &Outcome) {
-        self.seen.insert(
-            prediction.action().to_owned(),
-            outcome.observed().to_owned(),
-        );
+        let entry = self
+            .seen
+            .entry(prediction.action().to_owned())
+            .or_insert_with(|| (outcome.observed().to_owned(), 0));
+        entry.0 = outcome.observed().to_owned();
+        entry.1 = entry.1.saturating_add(1);
     }
 }
 

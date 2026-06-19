@@ -105,6 +105,49 @@ fn forward_model_learns_to_predict_observed_outcomes() -> Result<(), Box<dyn Err
 }
 
 #[test]
+fn error_is_precision_weighted_by_prediction_confidence() -> Result<(), Box<dyn Error>> {
+    // Given: the same total miss made with full vs. half confidence.
+    let confident = Prediction::new("inspect", Expected::Contains("ok".to_owned()));
+    let unsure =
+        Prediction::new("inspect", Expected::Contains("ok".to_owned())).with_confidence(0.5);
+    let observed = Outcome::new("nope");
+
+    // When: each is verified into a mismatch.
+    let Some(confident) = Verifier.verify(&confident, &observed).mismatch().cloned() else {
+        panic!("expected a mismatch");
+    };
+    let Some(unsure) = Verifier.verify(&unsure, &observed).mismatch().cloned() else {
+        panic!("expected a mismatch");
+    };
+
+    // Then: the raw magnitude is identical, but the precision-weighted error
+    // (what learning uses) is halved for the unsure prediction.
+    assert!((confident.magnitude() - unsure.magnitude()).abs() < f32::EPSILON);
+    assert!((confident.precision_weighted_magnitude() - 1.0).abs() < f32::EPSILON);
+    assert!((unsure.precision_weighted_magnitude() - 0.5).abs() < f32::EPSILON);
+    Ok(())
+}
+
+#[test]
+fn forward_model_confidence_grows_with_evidence() -> Result<(), Box<dyn Error>> {
+    // Given: an untrained forward model.
+    let mut model = AssociativePredictor::new();
+
+    // An unseen context predicts Anything with zero confidence.
+    assert!(model.predict("build").confidence() < f32::EPSILON);
+
+    // After one observation, confidence is 0.5; after a second, it rises.
+    model.observe(&model.predict("build"), &Outcome::new("ok"));
+    let once = model.predict("build").confidence();
+    model.observe(&model.predict("build"), &Outcome::new("ok"));
+    let twice = model.predict("build").confidence();
+
+    assert!((once - 0.5).abs() < 0.01);
+    assert!(twice > once);
+    Ok(())
+}
+
+#[test]
 fn mismatch_magnitude_is_graded_not_categorical() -> Result<(), Box<dyn Error>> {
     // Given: a total miss (no shared words) and a partial miss (some shared).
     let total = Verifier.verify(

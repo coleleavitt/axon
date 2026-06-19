@@ -374,9 +374,10 @@ impl Module<AgentSignal> for Executive {
         // Record the graded prediction error (0.0 when the outcome matched) so a
         // learning driver can scale reinforcement by how wrong this run was.
         if let Some(errors) = &self.errors {
+            // Precision-weighted: a confident miss teaches more than an unsure one.
             let magnitude = correction
                 .mismatch()
-                .map_or(0.0, |mismatch| mismatch.magnitude());
+                .map_or(0.0, |mismatch| mismatch.precision_weighted_magnitude());
             errors.borrow_mut().record(magnitude);
         }
         // Importance is set from the attention neuromodulator, so a more attentive
@@ -404,7 +405,7 @@ impl Module<AgentSignal> for Executive {
         // re-routing instead of perseverating.
         if let Some(threshold) = self.replan_threshold {
             if let Some(mismatch) = correction.mismatch() {
-                if mismatch.magnitude() >= threshold {
+                if mismatch.precision_weighted_magnitude() >= threshold {
                     self.reset_retries();
                     return Ok(ModuleOutput::emit(AgentSignal::Replan {
                         step,

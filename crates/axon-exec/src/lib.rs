@@ -7,6 +7,7 @@ use axon_predict::{Correction, Outcome, Prediction, Verifier};
 use axon_workspace::{Broadcast, Workspace};
 
 mod agent;
+mod learning;
 mod planning;
 
 pub use agent::{
@@ -20,6 +21,7 @@ pub use agent::{
     RoutedTool,
     wire_loop,
 };
+pub use learning::{LearningLoop, OutcomeError};
 pub use planning::{plan_prompt, propose_plan};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

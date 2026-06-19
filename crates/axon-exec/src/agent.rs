@@ -29,6 +29,7 @@ use axon_modulate::Modulators;
 use axon_predict::{Outcome, Prediction, Verifier};
 use axon_workspace::{Broadcast, Workspace};
 
+use crate::learning::OutcomeError;
 use crate::{Decision, Plan, decide};
 
 /// The typed payload that flows around the routed agent loop. Each variant names
@@ -200,6 +201,7 @@ pub struct Executive {
     verifier: Verifier,
     modulators: Modulators,
     workspace: Rc<RefCell<Workspace>>,
+    errors: Option<Rc<RefCell<OutcomeError>>>,
 }
 
 impl Executive {
@@ -216,7 +218,17 @@ impl Executive {
             verifier,
             modulators,
             workspace,
+            errors: None,
         }
+    }
+
+    /// Attach a shared [`OutcomeError`] meter so a
+    /// [`LearningLoop`](crate::LearningLoop) can read this executive's graded
+    /// error after a run and reinforce the routes accordingly.
+    #[must_use]
+    pub fn with_error_meter(mut self, errors: Rc<RefCell<OutcomeError>>) -> Self {
+        self.errors = Some(errors);
+        self
     }
 }
 
@@ -242,6 +254,14 @@ impl Module<AgentSignal> for Executive {
         let correction = self
             .verifier
             .verify(&prediction, &Outcome::new(observed.clone()));
+        // Record the graded prediction error (0.0 when the outcome matched) so a
+        // learning driver can scale reinforcement by how wrong this run was.
+        if let Some(errors) = &self.errors {
+            let magnitude = correction
+                .mismatch()
+                .map_or(0.0, |mismatch| mismatch.magnitude());
+            errors.borrow_mut().record(magnitude);
+        }
         self.memory
             .borrow_mut()
             .encode(Episode::new(format!("{action} -> {observed}")).with_tags(["observation"]));
